@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useMemo, use } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -16,7 +16,9 @@ import { SpendChart } from "@/components/charts/spend-chart";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { Settings2 } from "lucide-react";
+import {
+  Settings2, Search, ChevronUp, ChevronDown, ArrowUpDown,
+} from "lucide-react";
 
 interface UserData {
   user_id: string; name: string; email: string; job_title: string | null;
@@ -35,6 +37,9 @@ interface TeamDetail {
   byProvider: Array<{ provider: string; total_cost: number; total_tokens: number }>;
 }
 
+type UserSortField = "name" | "job_title" | "total_cost" | "total_tokens" | "total_requests" | "pctOfBudget";
+type SortDir = "asc" | "desc";
+
 export default function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [data, setData] = useState<TeamDetail | null>(null);
@@ -44,6 +49,11 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
   const [budgetInput, setBudgetInput] = useState("");
   const [thresholdInput, setThresholdInput] = useState("80");
   const [saving, setSaving] = useState(false);
+
+  // User sort + search
+  const [userSort, setUserSort] = useState<UserSortField>("total_cost");
+  const [userSortDir, setUserSortDir] = useState<SortDir>("desc");
+  const [userSearch, setUserSearch] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -66,6 +76,37 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  const sortedUsers = useMemo(() => {
+    if (!data) return [];
+    let list = data.users;
+    if (userSearch) {
+      const q = userSearch.toLowerCase();
+      list = list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.job_title ?? "").toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (userSort) {
+        case "name": cmp = a.name.localeCompare(b.name); break;
+        case "job_title": cmp = (a.job_title ?? "").localeCompare(b.job_title ?? ""); break;
+        case "total_cost": cmp = a.total_cost - b.total_cost; break;
+        case "total_tokens": cmp = a.total_tokens - b.total_tokens; break;
+        case "total_requests": cmp = a.total_requests - b.total_requests; break;
+        case "pctOfBudget": cmp = (a.pctOfBudget ?? -1) - (b.pctOfBudget ?? -1); break;
+      }
+      return userSortDir === "desc" ? -cmp : cmp;
+    });
+  }, [data, userSort, userSortDir, userSearch]);
+
+  const toggleUserSort = (field: UserSortField) => {
+    if (userSort === field) setUserSortDir(userSortDir === "asc" ? "desc" : "asc");
+    else { setUserSort(field); setUserSortDir(field === "name" || field === "job_title" ? "asc" : "desc"); }
+  };
+
+  const UserSortIcon = ({ field }: { field: UserSortField }) => {
+    if (userSort !== field) return <ArrowUpDown className="h-3 w-3 opacity-30" />;
+    return userSortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
+  };
+
   if (loading || !data) {
     return (
       <div>
@@ -85,6 +126,8 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   const team = data.team;
+  const hasBudget = team.monthlyBudget !== null;
+  const maxUserCost = Math.max(...data.users.map((u) => u.total_cost), 1);
 
   return (
     <div>
@@ -111,16 +154,16 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
 
       {/* Stats row */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-        {team.monthlyBudget !== null && (
+        {hasBudget && (
           <Card className="p-5 flex items-center justify-center">
-            <BudgetDonut spent={team.currentSpend} budget={team.monthlyBudget} size={130} label="Team Budget" />
+            <BudgetDonut spent={team.currentSpend} budget={team.monthlyBudget!} size={130} label="Team Budget" />
           </Card>
         )}
         <Card className="p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">Spend</p>
           <p className="text-2xl font-bold">{formatCurrency(team.currentSpend)}</p>
-          {team.monthlyBudget !== null && (
-            <ProgressBar value={team.currentSpend} max={team.monthlyBudget} alertThreshold={team.alertThreshold} size="sm" className="mt-3" />
+          {hasBudget && (
+            <ProgressBar value={team.currentSpend} max={team.monthlyBudget!} alertThreshold={team.alertThreshold} size="sm" className="mt-3" />
           )}
         </Card>
         <Card className="p-5">
@@ -136,7 +179,6 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Spend chart */}
         {data.dailySpend.length > 0 && (
           <Card>
             <CardHeader><CardTitle>Spend Trend</CardTitle></CardHeader>
@@ -145,7 +187,6 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
             </CardContent>
           </Card>
         )}
-        {/* By provider */}
         {data.byProvider.length > 0 && (
           <Card>
             <CardHeader><CardTitle>By Provider</CardTitle></CardHeader>
@@ -173,48 +214,90 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      {/* Users */}
+      {/* Users — sortable, searchable */}
       <Card>
-        <CardHeader><CardTitle>Team Members</CardTitle></CardHeader>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle>Team Members ({sortedUsers.length})</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search members..."
+                className="pl-8 h-8 text-xs w-56"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">User</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
-                <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
-                <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tokens</th>
-                {team.monthlyBudget !== null && (
-                  <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">% of Budget</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {data.users.map((u) => (
-                <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                  <td className="px-6 py-3">
-                    <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
-                      <Avatar name={u.name} size="sm" />
-                      <div>
-                        <p className="text-sm font-medium">{u.name}</p>
-                        <p className="text-xs text-muted-foreground">{u.email}</p>
-                      </div>
-                    </Link>
-                  </td>
-                  <td className="px-6 py-3 text-sm text-muted-foreground">{u.job_title ?? "—"}</td>
-                  <td className="px-6 py-3 text-right text-sm font-medium">{formatCurrency(u.total_cost)}</td>
-                  <td className="px-6 py-3 text-right text-sm text-muted-foreground">{formatTokens(u.total_tokens)}</td>
-                  {team.monthlyBudget !== null && (
-                    <td className="px-6 py-3 text-right">
-                      <Badge variant={u.pctOfBudget && u.pctOfBudget > 30 ? "warning" : "outline"}>
-                        {u.pctOfBudget !== null ? `${u.pctOfBudget}%` : "—"}
-                      </Badge>
-                    </td>
-                  )}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  {([
+                    ["name", "User", "left"],
+                    ["job_title", "Role", "left"],
+                    ["total_cost", "Spend", "right"],
+                    ["total_tokens", "Tokens", "right"],
+                    ["total_requests", "Requests", "right"],
+                    ...(hasBudget ? [["pctOfBudget", "% Budget", "right"] as [UserSortField, string, string]] : []),
+                  ] as [UserSortField, string, string][]).map(([field, label, align]) => (
+                    <th
+                      key={field}
+                      onClick={() => toggleUserSort(field)}
+                      className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none ${align === "right" ? "text-right" : "text-left"}`}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {label} <UserSortIcon field={field} />
+                      </span>
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sortedUsers.map((u) => {
+                  const barPct = maxUserCost > 0 ? (u.total_cost / maxUserCost) * 100 : 0;
+                  return (
+                    <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-5 py-3">
+                        <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
+                          <Avatar name={u.name} size="sm" />
+                          <div>
+                            <p className="text-sm font-medium">{u.name}</p>
+                            <p className="text-xs text-muted-foreground">{u.email}</p>
+                          </div>
+                        </Link>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-muted-foreground">{u.job_title ?? "—"}</td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
+                            <div className="h-full rounded-full bg-indigo-500" style={{ width: `${barPct}%` }} />
+                          </div>
+                          <span className="text-sm font-medium tabular-nums">{formatCurrency(u.total_cost)}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(u.total_tokens)}</td>
+                      <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{u.total_requests}</td>
+                      {hasBudget && (
+                        <td className="px-5 py-3 text-right">
+                          <Badge variant={u.pctOfBudget && u.pctOfBudget > 30 ? "warning" : "outline"}>
+                            {u.pctOfBudget !== null ? `${u.pctOfBudget}%` : "—"}
+                          </Badge>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {sortedUsers.length === 0 && (
+                  <tr><td colSpan={hasBudget ? 6 : 5} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                    {userSearch ? "No members match search" : "No members in this team"}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
