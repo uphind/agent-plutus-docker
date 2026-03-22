@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  apiKeyHash String  @map("api_key_hash")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users               OrgUser[]
+  departments         Department[]
+  teams               Team[]
+  providerCredentials ProviderCredential[]
+  usageRecords        UsageRecord[]
+  syncLogs            SyncLog[]
+
+  @@map("organizations")
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  name           String
+  monthlyBudget  Decimal? @map("monthly_budget") @db.Decimal(12, 2)
+  alertThreshold Int      @default(80) @map("alert_threshold")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  teams        Team[]
+  users        OrgUser[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("departments")
+}
+
+model Team {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  departmentId   String   @map("department_id")
+  name           String
+  monthlyBudget  Decimal? @map("monthly_budget") @db.Decimal(12, 2)
+  alertThreshold Int      @default(80) @map("alert_threshold")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  users        OrgUser[]
+
+  @@unique([orgId, departmentId, name])
+  @@index([orgId])
+  @@index([departmentId])
+  @@map("teams")
+}
+
+model OrgUser {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  email        String
+  name         String
+  department   String?
+  team         String?
+  departmentId String?  @map("department_id")
+  teamId       String?  @map("team_id")
+  jobTitle     String?  @map("job_title")
+  employeeId   String?  @map("employee_id")
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  departmentRef  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  teamRef        Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  usageRecords   UsageRecord[]
+
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@index([department])
+  @@index([team])
+  @@index([departmentId])
+  @@index([teamId])
+  @@map("org_users")
+}
+
+enum Provider {
+  anthropic
+  openai
+  gemini
+  cursor
+  vertex
+}
+
+model ProviderCredential {
+  id              String   @id @default(uuid())
+  orgId           String   @map("org_id")
+  provider        Provider
+  encryptedApiKey String   @map("encrypted_api_key")
+  label           String?
+  isActive        Boolean  @default(true) @map("is_active")
+  lastSyncAt      DateTime? @map("last_sync_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider])
+  @@index([orgId])
+  @@map("provider_credentials")
+}
+
+model UsageRecord {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  userId        String?  @map("user_id")
+  provider      Provider
+  model         String?
+  date          DateTime @db.Date
+  inputTokens   Int      @default(0) @map("input_tokens")
+  outputTokens  Int      @default(0) @map("output_tokens")
+  cachedTokens  Int      @default(0) @map("cached_tokens")
+  requestsCount Int      @default(0) @map("requests_count")
+  costUsd       Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 6)
+
+  linesAccepted   Int?   @map("lines_accepted")
+  linesSuggested  Int?   @map("lines_suggested")
+  acceptRate      Decimal? @map("accept_rate") @db.Decimal(5, 4)
+
+  metadata      Json?
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          OrgUser?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, date])
+  @@index([orgId, provider])
+  @@index([orgId, userId])
+  @@index([provider, date])
+  @@map("usage_records")
+}
+
+model SyncLog {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  provider   Provider
+  status     String
+  message    String?
+  startedAt  DateTime @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, provider])
+  @@map("sync_logs")
+}
