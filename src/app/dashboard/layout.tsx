@@ -1,4 +1,5 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { DemoGate } from "@/components/demo-gate";
 import { auth } from "@/auth";
 
 export default async function DashboardLayout({
@@ -11,5 +12,9 @@ export default async function DashboardLayout({
     ? { name: session.user.name ?? null, email: session.user.email ?? null }
     : null;
 
-  return <DashboardShell user={user}>{children}</DashboardShell>;
+  return (
+    <DemoGate>
+      <DashboardShell user={user}>{children}</DashboardShell>
+    </DemoGate>
+  );
 }
