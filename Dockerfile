@@ -13,6 +13,7 @@ COPY . .
 # Prisma generate + Next.js build need DATABASE_URL in the schema but don't
 # actually connect during build. Provide a dummy so the build succeeds.
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+ENV DOCKER_BUILD=1
 RUN npx prisma generate
 RUN npm run build
 
