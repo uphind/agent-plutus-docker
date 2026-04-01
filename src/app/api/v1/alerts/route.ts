@@ -149,7 +149,7 @@ export async function GET() {
     SELECT u.id AS user_id, u.name, u.department, u.department_id,
            COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM org_users u
-    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
+    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${thirtyDaysAgo}
     WHERE u.org_id = ${orgId} AND u.status = 'active'
     GROUP BY u.id, u.name, u.department, u.department_id
   `;
@@ -200,15 +200,15 @@ export async function GET() {
     });
   }
 
-  // Cost spike: departments with >50% month-over-month spend increase
-  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  // Cost spike: departments with >50% spend increase (last 30d vs prior 30d)
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const prevByDept = await prisma.$queryRaw<
     Array<{ department_id: string; department: string; prev_cost: number; curr_cost: number }>
   >`
     SELECT u.department_id,
            COALESCE(u.department, 'Unassigned') AS department,
-           COALESCE(SUM(CASE WHEN ur.date >= ${monthStart} THEN ur.cost_usd ELSE 0 END), 0)::float AS curr_cost,
-           COALESCE(SUM(CASE WHEN ur.date >= ${prevMonthStart} AND ur.date < ${monthStart} THEN ur.cost_usd ELSE 0 END), 0)::float AS prev_cost
+           COALESCE(SUM(CASE WHEN ur.date >= ${thirtyDaysAgo} THEN ur.cost_usd ELSE 0 END), 0)::float AS curr_cost,
+           COALESCE(SUM(CASE WHEN ur.date >= ${sixtyDaysAgo} AND ur.date < ${thirtyDaysAgo} THEN ur.cost_usd ELSE 0 END), 0)::float AS prev_cost
     FROM org_users u
     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId}
     WHERE u.org_id = ${orgId} AND u.status = 'active' AND u.department_id IS NOT NULL
@@ -246,7 +246,7 @@ export async function GET() {
            COALESCE(u.department, 'Unassigned') AS department,
            COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM org_users u
-    JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+    JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo}
     LEFT JOIN departments d ON u.department_id = d.id
     WHERE u.org_id = ${orgId} AND u.department_id IS NOT NULL
       AND (d.monthly_budget IS NULL OR d.monthly_budget = 0)
@@ -272,7 +272,7 @@ export async function GET() {
       THEN (SUM(cost_usd)::float / SUM(requests_count)::float)
       ELSE 0 END AS avg_cost
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
   `;
   const orgAvgCostPerReq = orgAvgCost[0]?.avg_cost ?? 0;
 
@@ -285,7 +285,7 @@ export async function GET() {
              SUM(ur.cost_usd)::float AS total_cost,
              SUM(ur.requests_count)::int AS total_requests
       FROM org_users u
-      JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+      JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo}
       WHERE u.org_id = ${orgId} AND u.status = 'active'
       GROUP BY u.id, u.name
       HAVING SUM(ur.requests_count) >= 10

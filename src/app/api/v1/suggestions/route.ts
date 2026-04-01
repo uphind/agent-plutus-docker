@@ -54,7 +54,7 @@ export async function GET() {
            SUM(cached_tokens)::float AS total_cached,
            SUM(cost_usd)::float AS total_cost
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
     GROUP BY provider
     HAVING SUM(input_tokens) > 0
   `;
@@ -92,7 +92,7 @@ export async function GET() {
     FROM usage_records ur
     JOIN org_users u ON ur.user_id = u.id
     LEFT JOIN teams t ON u.team_id = t.id
-    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND ur.model IS NOT NULL
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo} AND ur.model IS NOT NULL
     GROUP BY ur.model, ur.user_id, u.name, u.team_id, t.name
     HAVING SUM(ur.cost_usd)::float > 20
   `;
@@ -150,7 +150,7 @@ export async function GET() {
     SELECT SUM(cost_usd)::float AS non_batch_cost,
            SUM(requests_count)::int AS total_requests
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
       AND provider = 'openai' AND is_batch = false AND cost_usd > 0
   `;
 
@@ -241,7 +241,7 @@ export async function GET() {
            SUM(cost_usd)::float AS total_cost,
            SUM(output_tokens)::float AS total_output
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart} AND model IS NOT NULL
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo} AND model IS NOT NULL
     GROUP BY model
     HAVING SUM(output_tokens) > 1000 AND SUM(cost_usd)::float > 5
     ORDER BY cost_per_1k_out DESC
@@ -275,7 +275,7 @@ export async function GET() {
                   ELSE 0 END AS avg_tokens
       FROM usage_records ur
       JOIN org_users u ON ur.user_id = u.id
-      WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND ur.requests_count > 0
+      WHERE ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo} AND ur.requests_count > 0
       GROUP BY ur.user_id, u.name, u.team_id
       HAVING SUM(ur.requests_count) > 10
     ),
@@ -314,7 +314,7 @@ export async function GET() {
            COUNT(DISTINCT u.id)::int AS user_count
     FROM departments d
     JOIN org_users u ON u.department_id = d.id AND u.status = 'active'
-    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
+    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${thirtyDaysAgo}
     WHERE d.org_id = ${orgId}
       AND (d.monthly_budget IS NULL OR d.monthly_budget = 0)
     GROUP BY d.id, d.name
@@ -366,7 +366,7 @@ export async function GET() {
   >`
     SELECT provider, SUM(cost_usd)::float AS total_cost
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
     GROUP BY provider
     HAVING SUM(cost_usd) > 0
   `;
@@ -399,7 +399,7 @@ export async function GET() {
       COALESCE(SUM(CASE WHEN EXTRACT(DOW FROM date) NOT IN (0, 6) THEN cost_usd ELSE 0 END), 0)::float AS weekday_cost,
       COALESCE(SUM(CASE WHEN EXTRACT(DOW FROM date) IN (0, 6) THEN requests_count ELSE 0 END), 0)::int AS weekend_requests
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
   `;
 
   if (weekendData[0]) {
@@ -427,7 +427,7 @@ export async function GET() {
     SELECT COALESCE(SUM(lines_accepted), 0)::float AS total_accepted,
            COALESCE(SUM(lines_suggested), 0)::float AS total_suggested
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart} AND lines_suggested > 0
+    WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo} AND lines_suggested > 0
   `;
 
   if (acceptanceData[0]?.total_suggested > 100) {
