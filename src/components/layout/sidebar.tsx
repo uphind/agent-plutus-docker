@@ -18,7 +18,7 @@ import {
   ChevronRight,
   LogOut,
   Compass,
-  Trophy,
+  // Trophy,
   ChartLine,
   Receipt,
   Armchair,
@@ -47,7 +47,7 @@ const navSections = [
   {
     label: "INSIGHTS",
     items: [
-      { name: "ROI", href: "/dashboard/roi", icon: Trophy },
+      // { name: "ROI", href: "/dashboard/roi", icon: Trophy },
       { name: "Forecasting", href: "/dashboard/forecasting", icon: ChartLine },
       { name: "Seat Optimization", href: "/dashboard/seat-optimization", icon: Armchair },
       { name: "Analytics", href: "/dashboard/analytics", icon: TrendingUp },

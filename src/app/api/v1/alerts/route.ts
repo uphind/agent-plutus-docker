@@ -3,11 +3,11 @@ import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
 
 interface Alert {
-  type: "over_budget" | "budget_warning" | "anomaly" | "inactive_user";
+  type: "over_budget" | "budget_warning" | "anomaly" | "inactive_user" | "cost_spike" | "no_budget" | "underutilized" | "high_cost_model";
   severity: "critical" | "warning" | "info";
   title: string;
   description: string;
-  entityType: "department" | "team" | "user";
+  entityType: "department" | "team" | "user" | "provider";
   entityId: string;
   entityName: string;
   value?: number;
@@ -198,6 +198,138 @@ export async function GET() {
       description: `No AI usage recorded in the last 30 days`,
       entityType: "user", entityId: u.user_id, entityName: u.name,
     });
+  }
+
+  // Cost spike: departments with >50% month-over-month spend increase
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevByDept = await prisma.$queryRaw<
+    Array<{ department_id: string; department: string; prev_cost: number; curr_cost: number }>
+  >`
+    SELECT u.department_id,
+           COALESCE(u.department, 'Unassigned') AS department,
+           COALESCE(SUM(CASE WHEN ur.date >= ${monthStart} THEN ur.cost_usd ELSE 0 END), 0)::float AS curr_cost,
+           COALESCE(SUM(CASE WHEN ur.date >= ${prevMonthStart} AND ur.date < ${monthStart} THEN ur.cost_usd ELSE 0 END), 0)::float AS prev_cost
+    FROM org_users u
+    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId}
+    WHERE u.org_id = ${orgId} AND u.status = 'active' AND u.department_id IS NOT NULL
+    GROUP BY u.department_id, u.department
+  `;
+
+  for (const d of prevByDept) {
+    if (d.prev_cost > 5 && d.curr_cost > 5) {
+      const change = ((d.curr_cost - d.prev_cost) / d.prev_cost) * 100;
+      if (change >= 100) {
+        alerts.push({
+          type: "cost_spike", severity: "critical",
+          title: `${d.department} cost doubled`,
+          description: `Spend jumped from $${d.prev_cost.toFixed(2)} to $${d.curr_cost.toFixed(2)} (+${change.toFixed(0)}% vs last month)`,
+          entityType: "department", entityId: d.department_id, entityName: d.department,
+          value: change, threshold: 100,
+        });
+      } else if (change >= 50) {
+        alerts.push({
+          type: "cost_spike", severity: "warning",
+          title: `${d.department} cost rising fast`,
+          description: `Spend up from $${d.prev_cost.toFixed(2)} to $${d.curr_cost.toFixed(2)} (+${change.toFixed(0)}% vs last month)`,
+          entityType: "department", entityId: d.department_id, entityName: d.department,
+          value: change, threshold: 50,
+        });
+      }
+    }
+  }
+
+  // No budget: departments with meaningful spend but no budget configured
+  const deptsWithSpendNoBudget = await prisma.$queryRaw<
+    Array<{ department_id: string; department: string; total_cost: number }>
+  >`
+    SELECT u.department_id,
+           COALESCE(u.department, 'Unassigned') AS department,
+           COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
+    FROM org_users u
+    JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+    LEFT JOIN departments d ON u.department_id = d.id
+    WHERE u.org_id = ${orgId} AND u.department_id IS NOT NULL
+      AND (d.monthly_budget IS NULL OR d.monthly_budget = 0)
+    GROUP BY u.department_id, u.department
+    HAVING COALESCE(SUM(ur.cost_usd), 0) > 1
+  `;
+
+  for (const d of deptsWithSpendNoBudget) {
+    alerts.push({
+      type: "no_budget", severity: "info",
+      title: `${d.department} has no budget set`,
+      description: `$${d.total_cost.toFixed(2)} spent this month with no budget limit configured`,
+      entityType: "department", entityId: d.department_id, entityName: d.department,
+      value: d.total_cost,
+    });
+  }
+
+  // High-cost model: users whose average cost per request is >3x the org average
+  const orgAvgCost = await prisma.$queryRaw<
+    Array<{ avg_cost: number }>
+  >`
+    SELECT CASE WHEN SUM(requests_count) > 0
+      THEN (SUM(cost_usd)::float / SUM(requests_count)::float)
+      ELSE 0 END AS avg_cost
+    FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart}
+  `;
+  const orgAvgCostPerReq = orgAvgCost[0]?.avg_cost ?? 0;
+
+  if (orgAvgCostPerReq > 0) {
+    const expensiveUsers = await prisma.$queryRaw<
+      Array<{ user_id: string; name: string; avg_cost: number; total_cost: number; total_requests: number }>
+    >`
+      SELECT u.id AS user_id, u.name,
+             (SUM(ur.cost_usd)::float / NULLIF(SUM(ur.requests_count), 0)::float) AS avg_cost,
+             SUM(ur.cost_usd)::float AS total_cost,
+             SUM(ur.requests_count)::int AS total_requests
+      FROM org_users u
+      JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+      WHERE u.org_id = ${orgId} AND u.status = 'active'
+      GROUP BY u.id, u.name
+      HAVING SUM(ur.requests_count) >= 10
+        AND (SUM(ur.cost_usd)::float / NULLIF(SUM(ur.requests_count), 0)::float) > ${orgAvgCostPerReq * 3}
+    `;
+
+    for (const u of expensiveUsers) {
+      alerts.push({
+        type: "high_cost_model", severity: "warning",
+        title: `${u.name} uses expensive models`,
+        description: `$${u.avg_cost.toFixed(4)}/request avg (${(u.avg_cost / orgAvgCostPerReq).toFixed(1)}x org average) across ${u.total_requests} requests`,
+        entityType: "user", entityId: u.user_id, entityName: u.name,
+        value: u.avg_cost, threshold: orgAvgCostPerReq * 3,
+      });
+    }
+  }
+
+  // Underutilized: departments with very low seat utilization (<30% of users active)
+  const deptUtilization = await prisma.$queryRaw<
+    Array<{ department_id: string; department: string; total_users: number; active_users: number }>
+  >`
+    SELECT u.department_id,
+           COALESCE(u.department, 'Unassigned') AS department,
+           COUNT(DISTINCT u.id)::int AS total_users,
+           COUNT(DISTINCT ur.user_id)::int AS active_users
+    FROM org_users u
+    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo}
+    WHERE u.org_id = ${orgId} AND u.status = 'active' AND u.department_id IS NOT NULL
+    GROUP BY u.department_id, u.department
+    HAVING COUNT(DISTINCT u.id) >= 3
+  `;
+
+  for (const d of deptUtilization) {
+    const utilRate = d.total_users > 0 ? d.active_users / d.total_users : 0;
+    if (utilRate < 0.3) {
+      const idleCount = d.total_users - d.active_users;
+      alerts.push({
+        type: "underutilized", severity: d.active_users === 0 ? "warning" : "info",
+        title: `${d.department} has low adoption`,
+        description: `Only ${d.active_users} of ${d.total_users} users (${(utilRate * 100).toFixed(0)}%) active in the last 30 days — ${idleCount} idle seats`,
+        entityType: "department", entityId: d.department_id, entityName: d.department,
+        value: utilRate * 100, threshold: 30,
+      });
+    }
   }
 
   alerts.sort((a, b) => {

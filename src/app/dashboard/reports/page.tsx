@@ -16,7 +16,8 @@ import Link from "next/link";
 import { ExportModal } from "@/components/export-modal";
 import {
   Download, TrendingUp, TrendingDown, DollarSign, Calendar, Target,
-  ChevronDown, ChevronRight, AlertCircle, UserX,
+  ChevronDown, ChevronRight, AlertCircle, UserX, Flame, ShieldAlert,
+  Cpu, UsersRound,
 } from "lucide-react";
 
 interface CostSummary {
@@ -256,6 +257,7 @@ const ALERT_CATEGORIES: Record<string, {
   icon: typeof AlertCircle;
   dotColor: string;
   bgColor: string;
+  iconColor: string;
 }> = {
   over_budget: {
     label: "Over Budget",
@@ -263,6 +265,7 @@ const ALERT_CATEGORIES: Record<string, {
     icon: DollarSign,
     dotColor: "bg-orange-500",
     bgColor: "bg-orange-500/8",
+    iconColor: "#f97316",
   },
   budget_warning: {
     label: "Approaching Budget",
@@ -270,6 +273,15 @@ const ALERT_CATEGORIES: Record<string, {
     icon: TrendingUp,
     dotColor: "bg-amber-400",
     bgColor: "bg-amber-500/8",
+    iconColor: "#f59e0b",
+  },
+  cost_spike: {
+    label: "Cost Spikes",
+    description: "Departments with significant month-over-month spend increase",
+    icon: Flame,
+    dotColor: "bg-red-500",
+    bgColor: "bg-red-500/8",
+    iconColor: "#ef4444",
   },
   anomaly: {
     label: "Unusual Spend",
@@ -277,6 +289,31 @@ const ALERT_CATEGORIES: Record<string, {
     icon: TrendingDown,
     dotColor: "bg-blue-400",
     bgColor: "bg-blue-500/8",
+    iconColor: "#60a5fa",
+  },
+  high_cost_model: {
+    label: "Expensive Usage",
+    description: "Users with unusually high cost per request vs org average",
+    icon: Cpu,
+    dotColor: "bg-rose-400",
+    bgColor: "bg-rose-500/8",
+    iconColor: "#fb7185",
+  },
+  no_budget: {
+    label: "Missing Budgets",
+    description: "Departments with active spend but no budget configured",
+    icon: ShieldAlert,
+    dotColor: "bg-violet-400",
+    bgColor: "bg-violet-500/8",
+    iconColor: "#a78bfa",
+  },
+  underutilized: {
+    label: "Low Adoption",
+    description: "Departments where most seats are not actively using AI",
+    icon: UsersRound,
+    dotColor: "bg-teal-400",
+    bgColor: "bg-teal-500/8",
+    iconColor: "#2dd4bf",
   },
   inactive_user: {
     label: "Inactive Seats",
@@ -284,6 +321,7 @@ const ALERT_CATEGORIES: Record<string, {
     icon: UserX,
     dotColor: "bg-gray-400",
     bgColor: "bg-gray-500/8",
+    iconColor: "#9ca3af",
   },
 };
 
@@ -365,7 +403,7 @@ function AlertsPanel({ alerts }: { alerts: AlertData[] }) {
               className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors text-left"
             >
               <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${cat.bgColor}`}>
-                <Icon className="h-4 w-4" style={{ color: cat.dotColor.replace("bg-", "").includes("orange") ? "#f97316" : cat.dotColor.replace("bg-", "").includes("amber") ? "#f59e0b" : cat.dotColor.replace("bg-", "").includes("blue") ? "#60a5fa" : "#9ca3af" }} />
+                <Icon className="h-4 w-4" style={{ color: cat.iconColor }} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold">{cat.label}</p>

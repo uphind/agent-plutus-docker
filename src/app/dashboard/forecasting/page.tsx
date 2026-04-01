@@ -51,13 +51,15 @@ export default function ForecastingPage() {
   const [historyDays, setHistoryDays] = useState(90);
   const [forecastDays, setForecastDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [whatIfUsers, setWhatIfUsers] = useState(0);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     api.getForecast(historyDays, forecastDays)
       .then(setData)
-      .catch(console.error)
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [historyDays, forecastDays]);
 
@@ -102,7 +104,20 @@ export default function ForecastingPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div>
+        <Header title="Forecasting" description="Predictive spend analysis and budget projections" />
+        <Card className="p-8 text-center">
+          <p className="text-destructive">{error}</p>
+        </Card>
+      </div>
+    );
+  }
+
   if (!data) return null;
+
+  const hasHistory = data.history.length > 0;
 
   return (
     <div>
@@ -132,6 +147,19 @@ export default function ForecastingPage() {
           </div>
         }
       />
+
+      {!hasHistory ? (
+        <Card className="p-10 text-center max-w-lg mx-auto">
+          <div className="flex justify-center mb-4">
+            <ChartLine className="h-12 w-12 text-muted-foreground/40" />
+          </div>
+          <h2 className="text-lg font-semibold mb-2">No spend data yet</h2>
+          <p className="text-sm text-muted-foreground">
+            Forecasting requires historical usage data. Once your connected providers start reporting spend, projections will appear here automatically.
+          </p>
+        </Card>
+      ) : (
+      <>
 
       {/* KPIs */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 mb-6">
@@ -344,6 +372,8 @@ export default function ForecastingPage() {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

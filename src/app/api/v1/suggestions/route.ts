@@ -305,6 +305,159 @@ export async function GET() {
     });
   }
 
+  // 8) Departments with no budget configured
+  const noBudgetDepts = await prisma.$queryRaw<
+    Array<{ dept_id: string; dept_name: string; total_cost: number; user_count: number }>
+  >`
+    SELECT d.id AS dept_id, d.name AS dept_name,
+           COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost,
+           COUNT(DISTINCT u.id)::int AS user_count
+    FROM departments d
+    JOIN org_users u ON u.department_id = d.id AND u.status = 'active'
+    LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
+    WHERE d.org_id = ${orgId}
+      AND (d.monthly_budget IS NULL OR d.monthly_budget = 0)
+    GROUP BY d.id, d.name
+  `;
+
+  if (noBudgetDepts.length > 0) {
+    const withSpend = noBudgetDepts.filter((d) => d.total_cost > 0);
+    const totalUnbudgeted = noBudgetDepts.reduce((s, d) => s + d.total_cost, 0);
+    suggestions.push({
+      id: "missing-budgets",
+      category: "budget_alerts",
+      type: "missing_budget",
+      severity: withSpend.length > 0 ? "warning" : "info",
+      title: `${noBudgetDepts.length} department${noBudgetDepts.length > 1 ? "s" : ""} without budget limits`,
+      description: withSpend.length > 0
+        ? `${withSpend.length} of these have active spend totaling $${totalUnbudgeted.toFixed(0)} this month. Set budgets to prevent uncontrolled costs.`
+        : `Configure monthly budgets to get spend alerts and forecasting for these departments.`,
+      affectedEntities: noBudgetDepts.map((d) => ({
+        type: "department", id: d.dept_id, name: d.dept_name,
+      })),
+      linkTo: "/dashboard/departments",
+    });
+  }
+
+  // 9) Users not assigned to a department
+  const unassignedUsers = await prisma.orgUser.findMany({
+    where: { orgId, status: "active", departmentId: null },
+    select: { id: true, name: true },
+  });
+
+  if (unassignedUsers.length > 0) {
+    suggestions.push({
+      id: "unassigned-users",
+      category: "seat_management",
+      type: "unassigned_department",
+      severity: unassignedUsers.length > 10 ? "warning" : "info",
+      title: `${unassignedUsers.length} user${unassignedUsers.length > 1 ? "s" : ""} not assigned to a department`,
+      description: `These users won't appear in department-level reports, budgets, or benchmarks. Assign them for better cost visibility.`,
+      affectedEntities: unassignedUsers.slice(0, 20).map((u) => ({
+        type: "user", id: u.id, name: u.name,
+      })),
+      linkTo: "/dashboard/users",
+    });
+  }
+
+  // 10) Provider concentration risk (>90% spend on one provider)
+  const providerSpend = await prisma.$queryRaw<
+    Array<{ provider: string; total_cost: number }>
+  >`
+    SELECT provider, SUM(cost_usd)::float AS total_cost
+    FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    GROUP BY provider
+    HAVING SUM(cost_usd) > 0
+  `;
+
+  if (providerSpend.length > 1) {
+    const totalProviderSpend = providerSpend.reduce((s, p) => s + p.total_cost, 0);
+    const dominant = providerSpend.sort((a, b) => b.total_cost - a.total_cost)[0];
+    const dominantPct = totalProviderSpend > 0 ? (dominant.total_cost / totalProviderSpend) * 100 : 0;
+
+    if (dominantPct >= 90 && totalProviderSpend > 10) {
+      suggestions.push({
+        id: "provider-concentration",
+        category: "cost_optimization",
+        type: "provider_concentration",
+        severity: "info",
+        title: `${dominantPct.toFixed(0)}% of spend concentrated on ${dominant.provider}`,
+        description: `Diversifying across providers can reduce vendor lock-in risk and leverage competitive pricing. Consider routing non-critical workloads to alternative providers.`,
+        affectedEntities: [{ type: "provider", id: dominant.provider, name: dominant.provider }],
+        linkTo: "/dashboard/providers",
+      });
+    }
+  }
+
+  // 11) Weekend usage patterns (potential for batch/async processing)
+  const weekendData = await prisma.$queryRaw<
+    Array<{ weekend_cost: number; weekday_cost: number; weekend_requests: number }>
+  >`
+    SELECT
+      COALESCE(SUM(CASE WHEN EXTRACT(DOW FROM date) IN (0, 6) THEN cost_usd ELSE 0 END), 0)::float AS weekend_cost,
+      COALESCE(SUM(CASE WHEN EXTRACT(DOW FROM date) NOT IN (0, 6) THEN cost_usd ELSE 0 END), 0)::float AS weekday_cost,
+      COALESCE(SUM(CASE WHEN EXTRACT(DOW FROM date) IN (0, 6) THEN requests_count ELSE 0 END), 0)::int AS weekend_requests
+    FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart}
+  `;
+
+  if (weekendData[0]) {
+    const wd = weekendData[0];
+    const total = wd.weekend_cost + wd.weekday_cost;
+    const weekendPct = total > 0 ? (wd.weekend_cost / total) * 100 : 0;
+    if (weekendPct > 25 && wd.weekend_cost > 20) {
+      suggestions.push({
+        id: "weekend-usage",
+        category: "efficiency",
+        type: "weekend_usage",
+        severity: "info",
+        title: `${weekendPct.toFixed(0)}% of spend occurs on weekends`,
+        description: `$${wd.weekend_cost.toFixed(0)} spent on ${wd.weekend_requests.toLocaleString()} weekend requests this month. If these are automated workloads, consider using batch APIs or off-peak pricing.`,
+        estimatedSavings: Math.round(wd.weekend_cost * 0.3),
+        affectedEntities: [],
+      });
+    }
+  }
+
+  // 12) Low overall acceptance rate (for orgs using Cursor/copilot)
+  const acceptanceData = await prisma.$queryRaw<
+    Array<{ total_accepted: number; total_suggested: number }>
+  >`
+    SELECT COALESCE(SUM(lines_accepted), 0)::float AS total_accepted,
+           COALESCE(SUM(lines_suggested), 0)::float AS total_suggested
+    FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart} AND lines_suggested > 0
+  `;
+
+  if (acceptanceData[0]?.total_suggested > 100) {
+    const ad = acceptanceData[0];
+    const acceptRate = ad.total_accepted / ad.total_suggested;
+    if (acceptRate < 0.15) {
+      suggestions.push({
+        id: "low-acceptance",
+        category: "efficiency",
+        type: "low_acceptance_rate",
+        severity: "warning",
+        title: `Low code acceptance rate: ${(acceptRate * 100).toFixed(1)}%`,
+        description: `Only ${Math.round(ad.total_accepted)} of ${Math.round(ad.total_suggested)} suggested lines were accepted. This could indicate poor prompt quality, model mismatch, or developers not finding suggestions useful.`,
+        affectedEntities: [],
+        linkTo: "/dashboard/analytics",
+      });
+    } else if (acceptRate < 0.25) {
+      suggestions.push({
+        id: "low-acceptance",
+        category: "efficiency",
+        type: "low_acceptance_rate",
+        severity: "info",
+        title: `Code acceptance rate could improve: ${(acceptRate * 100).toFixed(1)}%`,
+        description: `${Math.round(ad.total_accepted)} of ${Math.round(ad.total_suggested)} suggested lines accepted. Industry benchmarks typically target 30%+. Consider training sessions on effective prompting.`,
+        affectedEntities: [],
+        linkTo: "/dashboard/analytics",
+      });
+    }
+  }
+
   suggestions.sort((a, b) => {
     const sev = { critical: 0, warning: 1, info: 2 };
     return sev[a.severity] - sev[b.severity] || (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0);
