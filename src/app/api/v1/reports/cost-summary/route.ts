@@ -6,10 +6,23 @@ export async function GET(request: NextRequest) {
   const orgId = await getOrgId();
 
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  let monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  let prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-  // Current month by department
+  // Check if current month has any data; if not, fall back to last month
+  const currentMonthCheck = await prisma.$queryRaw<Array<{ cnt: number }>>`
+    SELECT COUNT(*)::int AS cnt FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart}
+  `;
+  if (currentMonthCheck[0]?.cnt === 0) {
+    monthStart = prevMonthStart;
+    prevMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1);
+  }
+  const reportMonth = monthStart.getMonth();
+  const reportYear = monthStart.getFullYear();
+  const monthEnd = new Date(reportYear, reportMonth + 1, 1);
+
+  // Current period by department
   const currentByDept = await prisma.$queryRaw<
     Array<{ department_id: string; department: string; total_cost: number; total_tokens: number; total_requests: number }>
   >`
@@ -18,11 +31,11 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM usage_records ur JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND ur.date < ${monthEnd}
     GROUP BY u.department_id, u.department ORDER BY total_cost DESC
   `;
 
-  // Previous month by department
+  // Previous period by department
   const prevByDept = await prisma.$queryRaw<
     Array<{ department_id: string; total_cost: number }>
   >`
@@ -48,7 +61,7 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM usage_records ur
-    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND ur.date < ${monthEnd}
     GROUP BY ur.provider ORDER BY total_cost DESC
   `;
 
@@ -63,14 +76,16 @@ export async function GET(request: NextRequest) {
   const prevProvMap = new Map(prevByProvider.map((p) => [p.provider, p.total_cost]));
 
   // Cost forecasting using weighted moving average
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(reportYear, reportMonth + 1, 0).getDate();
+  const dayOfMonth = monthStart.getMonth() === now.getMonth() && monthStart.getFullYear() === now.getFullYear()
+    ? now.getDate()
+    : daysInMonth;
   const totalCurrentSpend = currentByDept.reduce((s, d) => s + d.total_cost, 0);
 
   const dailySpend = await prisma.$queryRaw<Array<{ day_num: number; spend: number }>>`
     SELECT EXTRACT(DAY FROM date)::int AS day_num, SUM(cost_usd)::float AS spend
     FROM usage_records
-    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    WHERE org_id = ${orgId} AND date >= ${monthStart} AND date < ${monthEnd}
     GROUP BY date ORDER BY date
   `;
 
@@ -92,7 +107,7 @@ export async function GET(request: NextRequest) {
   const projectedMonthEnd = totalCurrentSpend + weightedDailyRate * daysRemaining;
 
   return NextResponse.json({
-    period: { month: now.getMonth() + 1, year: now.getFullYear(), dayOfMonth, daysInMonth },
+    period: { month: reportMonth + 1, year: reportYear, dayOfMonth, daysInMonth },
     byDepartment: currentByDept.map((d) => ({
       departmentId: d.department_id,
       department: d.department,
