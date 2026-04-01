@@ -33,6 +33,7 @@ function linearRegression(points: Array<{ x: number; y: number }>): { slope: num
 }
 
 export async function GET(request: NextRequest) {
+  try {
   const orgId = await getOrgId();
   const { searchParams } = new URL(request.url);
   const historyDays = parseInt(searchParams.get("historyDays") ?? "90", 10);
@@ -41,16 +42,23 @@ export async function GET(request: NextRequest) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - historyDays);
 
-  const dailySpend = await prisma.$queryRaw<
-    Array<{ date: string; spend: number; tokens: number; requests: number }>
+  const dailySpendRaw = await prisma.$queryRaw<
+    Array<{ date: string; spend: number; tokens: number | bigint; requests: number | bigint }>
   >(
     Prisma.sql`SELECT date::text, SUM(cost_usd)::float AS spend,
-            SUM(input_tokens + output_tokens)::bigint AS tokens,
-            SUM(requests_count)::bigint AS requests
+            COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS tokens,
+            COALESCE(SUM(requests_count), 0)::bigint AS requests
      FROM usage_records
      WHERE org_id = ${orgId} AND date >= ${startDate}
      GROUP BY date ORDER BY date`
   );
+
+  const dailySpend = dailySpendRaw.map((d) => ({
+    date: d.date,
+    spend: d.spend,
+    tokens: Number(d.tokens),
+    requests: Number(d.requests),
+  }));
 
   const weekdaySpend: number[] = [];
   const weekendSpend: number[] = [];
@@ -187,4 +195,11 @@ export async function GET(request: NextRequest) {
     budgetExhaustion,
     currentMonth: { dayOfMonth, daysInMonth, daysRemaining },
   });
+  } catch (err) {
+    console.error("Forecast API error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Internal server error" },
+      { status: 500 },
+    );
+  }
 }
