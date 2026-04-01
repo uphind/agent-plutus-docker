@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 export async function GET() {
   const orgId = await getOrgId();
@@ -8,7 +9,7 @@ export async function GET() {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const syncHealth = await prisma.$queryRawUnsafe<
+  const syncHealth = await prisma.$queryRaw<
     Array<{
       provider: string;
       total_syncs: number;
@@ -19,7 +20,7 @@ export async function GET() {
       last_status: string;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        provider::text,
        COUNT(*)::int AS total_syncs,
        COUNT(*) FILTER (WHERE status = 'success')::int AS successful_syncs,
@@ -28,7 +29,7 @@ export async function GET() {
        MAX(started_at)::text AS last_sync,
        (ARRAY_AGG(status ORDER BY started_at DESC))[1] AS last_status
      FROM sync_logs
-     WHERE org_id = '${orgId}' AND started_at >= '${thirtyDaysAgo.toISOString()}'
+     WHERE org_id = ${orgId} AND started_at >= ${thirtyDaysAgo}
      GROUP BY provider
      ORDER BY provider`
   );
@@ -69,7 +70,7 @@ export async function GET() {
     };
   });
 
-  const recentFailures = await prisma.$queryRawUnsafe<
+  const recentFailures = await prisma.$queryRaw<
     Array<{
       id: string;
       provider: string;
@@ -78,22 +79,22 @@ export async function GET() {
       started_at: string;
     }>
   >(
-    `SELECT id, provider::text, status, message, started_at::text
+    Prisma.sql`SELECT id, provider::text, status, message, started_at::text
      FROM sync_logs
-     WHERE org_id = '${orgId}' AND status = 'error'
-       AND started_at >= '${thirtyDaysAgo.toISOString()}'
+     WHERE org_id = ${orgId} AND status = 'error'
+       AND started_at >= ${thirtyDaysAgo}
      ORDER BY started_at DESC
      LIMIT 20`
   );
 
-  const dailySyncStats = await prisma.$queryRawUnsafe<
+  const dailySyncStats = await prisma.$queryRaw<
     Array<{ date: string; provider: string; success_count: number; fail_count: number }>
   >(
-    `SELECT started_at::date::text AS date, provider::text,
+    Prisma.sql`SELECT started_at::date::text AS date, provider::text,
             COUNT(*) FILTER (WHERE status = 'success')::int AS success_count,
             COUNT(*) FILTER (WHERE status = 'error')::int AS fail_count
      FROM sync_logs
-     WHERE org_id = '${orgId}' AND started_at >= '${thirtyDaysAgo.toISOString()}'
+     WHERE org_id = ${orgId} AND started_at >= ${thirtyDaysAgo}
      GROUP BY started_at::date, provider
      ORDER BY date`
   );

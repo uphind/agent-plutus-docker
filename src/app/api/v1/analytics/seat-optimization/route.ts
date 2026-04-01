@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
   const orgId = await getOrgId();
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  const allUsers = await prisma.$queryRawUnsafe<
+  const allUsers = await prisma.$queryRaw<
     Array<{
       user_id: string;
       name: string;
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
       lines_suggested: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        u.id AS user_id, u.name, u.email,
        COALESCE(u.department, 'Unassigned') AS department,
        COALESCE(u.team, '') AS team,
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
        COALESCE(SUM(ur.lines_suggested), 0)::bigint AS lines_suggested
      FROM org_users u
      LEFT JOIN usage_records ur ON ur.user_id = u.id
-       AND ur.org_id = '${orgId}' AND ur.date >= '${startDate.toISOString()}'
-     WHERE u.org_id = '${orgId}' AND u.status = 'active'
+       AND ur.org_id = ${orgId} AND ur.date >= ${startDate}
+     WHERE u.org_id = ${orgId} AND u.status = 'active'
      GROUP BY u.id, u.name, u.email, u.department, u.team, u.status
      ORDER BY total_cost DESC`
   );
@@ -84,16 +85,16 @@ export async function GET(request: NextRequest) {
   const lowUsageUsers = scored.filter((u) => u.isLowUsage);
   const highUsers = scored.filter((u) => u.engagementTier === "high");
 
-  const providerOverlap = await prisma.$queryRawUnsafe<
+  const providerOverlap = await prisma.$queryRaw<
     Array<{ user_id: string; name: string; email: string; providers: string; total_cost: number }>
   >(
-    `SELECT u.id AS user_id, u.name, u.email,
+    Prisma.sql`SELECT u.id AS user_id, u.name, u.email,
             STRING_AGG(DISTINCT ur.provider::text, ',' ORDER BY ur.provider::text) AS providers,
             SUM(ur.cost_usd)::float AS total_cost
      FROM org_users u
      JOIN usage_records ur ON ur.user_id = u.id
-       AND ur.org_id = '${orgId}' AND ur.date >= '${startDate.toISOString()}'
-     WHERE u.org_id = '${orgId}' AND u.status = 'active'
+       AND ur.org_id = ${orgId} AND ur.date >= ${startDate}
+     WHERE u.org_id = ${orgId} AND u.status = 'active'
      GROUP BY u.id, u.name, u.email
      HAVING COUNT(DISTINCT ur.provider) > 1`
   );

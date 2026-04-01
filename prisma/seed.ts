@@ -1,8 +1,10 @@
 import "dotenv/config";
 import { PrismaClient, Provider, NotificationType } from "../src/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { encrypt } from "../src/lib/encryption";
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg(process.env.DATABASE_URL!);
+const prisma = new PrismaClient({ adapter });
 
 function rand(min: number, max: number) { return Math.random() * (max - min) + min; }
 function randInt(min: number, max: number) { return Math.floor(rand(min, max + 1)); }
@@ -180,9 +182,12 @@ async function main() {
   await prisma.usageRecord.deleteMany({ where: { orgId } });
   await prisma.cursorDau.deleteMany({ where: { orgId } });
   await prisma.notification.deleteMany({ where: { orgId } });
+  await prisma.syncLog.deleteMany({ where: { orgId } });
+  await prisma.benchmarkSnapshot.deleteMany({});
+  await prisma.chargebackReport.deleteMany({ where: { orgId } });
 
-  /* ─── Generate 30 days of usage records ─── */
-  const DAYS = 30;
+  /* ─── Generate 90 days of usage records ─── */
+  const DAYS = 90;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const records: any[] = [];
 
@@ -228,14 +233,12 @@ async function main() {
         const linesSug = isCursor ? randInt(5, 80) : 0;
         const linesAcc = isCursor ? Math.round(linesSug * rand(0.4, 0.9)) : 0;
 
-        // OpenAI enrichment
         const isOpenAI = md.provider === "openai";
         const isBatch = isOpenAI && Math.random() < 0.15;
         const audioIn = isOpenAI && Math.random() < 0.05 ? randInt(100, 2000) : 0;
         const audioOut = audioIn > 0 ? randInt(50, 1000) : 0;
         const apiKeyId = isOpenAI ? pick(OPENAI_API_KEYS) : null;
 
-        // Cursor metadata enrichment
         let metadata: Record<string, unknown> | null = null;
         if (isCursor) {
           metadata = {
@@ -314,31 +317,124 @@ async function main() {
   await prisma.cursorDau.createMany({ data: dauRecords });
   console.log(`✓ ${dauRecords.length} Cursor DAU records`);
 
-  /* ─── Sync logs ─── */
-  await prisma.syncLog.deleteMany({ where: { orgId } });
+  /* ─── Sync logs (30 days of realistic sync history) ─── */
   const syncLogs: Array<{
     orgId: string; provider: Provider; status: string; message: string;
     startedAt: Date; finishedAt: Date;
   }> = [];
+
   for (const p of providers) {
-    for (let i = 0; i < 8; i++) {
-      const startedAt = new Date(Date.now() - randInt(1, 7) * 86400000 - randInt(0, 86400000));
-      const duration = randInt(3, 25) * 1000;
-      syncLogs.push({
-        orgId, provider: p.provider, status: "success",
-        message: `Synced ${randInt(50, 500)} records from ${p.label}`,
-        startedAt, finishedAt: new Date(startedAt.getTime() + duration),
-      });
+    for (let dayOffset = 29; dayOffset >= 0; dayOffset--) {
+      const syncsPerDay = randInt(3, 6);
+      for (let s = 0; s < syncsPerDay; s++) {
+        const startedAt = new Date(Date.now() - dayOffset * 86400000 - randInt(0, 86400000));
+        const duration = randInt(3, 25) * 1000;
+        const isFailure = p.provider === "gemini" && Math.random() < 0.08;
+        syncLogs.push({
+          orgId,
+          provider: p.provider,
+          status: isFailure ? "error" : "success",
+          message: isFailure
+            ? pick(["Rate limit exceeded — retrying in 60s", "API timeout after 30s", "Authentication token expired"])
+            : `Synced ${randInt(50, 500)} records from ${p.label}`,
+          startedAt,
+          finishedAt: new Date(startedAt.getTime() + duration),
+        });
+      }
     }
   }
-  const failStart = new Date(Date.now() - 3600000);
+
+  const recentFail = new Date(Date.now() - 3600000);
   syncLogs.push({
     orgId, provider: "gemini", status: "error",
     message: "Rate limit exceeded — retrying in 60s",
-    startedAt: failStart, finishedAt: new Date(failStart.getTime() + 2000),
+    startedAt: recentFail, finishedAt: new Date(recentFail.getTime() + 2000),
   });
   await prisma.syncLog.createMany({ data: syncLogs });
   console.log(`✓ ${syncLogs.length} sync logs`);
+
+  /* ─── Benchmark Snapshots ─── */
+  const benchmarkSizes = ["1-50", "50-200", "200-1000", "1000+"];
+  const benchmarkData: Array<{
+    date: Date;
+    companySize: string;
+    medianCostPerDev: number;
+    medianAcceptRate: number;
+    medianCostPerLine: number;
+    providerMix: Record<string, number>;
+    sampleSize: number;
+  }> = [];
+
+  for (let monthOffset = 2; monthOffset >= 0; monthOffset--) {
+    const snapDate = new Date();
+    snapDate.setMonth(snapDate.getMonth() - monthOffset);
+    snapDate.setDate(1);
+    snapDate.setHours(0, 0, 0, 0);
+
+    for (const size of benchmarkSizes) {
+      const baseCost = size === "1-50" ? 165 : size === "50-200" ? 195 : size === "200-1000" ? 235 : 265;
+      const growth = (2 - monthOffset) * 8;
+      benchmarkData.push({
+        date: snapDate,
+        companySize: size,
+        medianCostPerDev: baseCost + growth + rand(-10, 10),
+        medianAcceptRate: 0.26 + rand(-0.03, 0.05),
+        medianCostPerLine: 0.010 + rand(-0.002, 0.004),
+        providerMix: {
+          cursor: 0.32 + rand(-0.05, 0.05),
+          anthropic: 0.28 + rand(-0.05, 0.05),
+          openai: 0.25 + rand(-0.05, 0.05),
+          gemini: 0.15 + rand(-0.05, 0.05),
+        },
+        sampleSize: size === "1-50" ? randInt(120, 200) : size === "50-200" ? randInt(80, 150) : size === "200-1000" ? randInt(40, 80) : randInt(15, 35),
+      });
+    }
+  }
+
+  for (const b of benchmarkData) {
+    await prisma.benchmarkSnapshot.upsert({
+      where: { date_companySize: { date: b.date, companySize: b.companySize } },
+      create: b,
+      update: b,
+    });
+  }
+  console.log(`✓ ${benchmarkData.length} benchmark snapshots`);
+
+  /* ─── Chargeback Reports (last 3 months) ─── */
+  const chargebackReports = [];
+  for (let monthOffset = 2; monthOffset >= 0; monthOffset--) {
+    const now = new Date();
+    const reportMonth = `${now.getFullYear()}-${String(now.getMonth() + 1 - monthOffset).padStart(2, "0")}`;
+    const deptCosts: Record<string, { cost: number; tokens: number; requests: number }> = {};
+    for (const [deptName] of Object.entries(deptDefs)) {
+      deptCosts[deptName] = {
+        cost: rand(100, 2000) * (deptName === "Engineering" ? 3 : 1),
+        tokens: randInt(500000, 5000000),
+        requests: randInt(500, 5000),
+      };
+    }
+    const totalCost = Object.values(deptCosts).reduce((s, d) => s + d.cost, 0);
+
+    chargebackReports.push({
+      orgId,
+      month: reportMonth,
+      totalCost,
+      data: {
+        departments: Object.entries(deptCosts).map(([name, data]) => ({
+          department: name,
+          costCenter: deptDefs[name].costCenter,
+          glCode: deptDefs[name].glCode,
+          ...data,
+        })),
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  for (const report of chargebackReports) {
+    await prisma.chargebackReport.create({ data: report });
+  }
+  console.log(`✓ ${chargebackReports.length} chargeback reports`);
 
   /* ─── Notifications ─── */
   const notifications = [
@@ -351,7 +447,7 @@ async function main() {
     {
       orgId, type: NotificationType.budget_alert, severity: "critical",
       title: "Marketing exceeded budget",
-      message: "Marketing department has exceeded its $1,000 monthly budget by $87.",
+      message: "Marketing department has exceeded its $200 monthly budget by $87.",
       entityType: "department", entityId: deptMap.get("Marketing")!,
     },
     {
@@ -377,6 +473,29 @@ async function main() {
       title: "Switch 3 users from claude-opus to claude-sonnet",
       message: "Estimated savings: $120/mo by switching non-critical workloads to claude-sonnet.",
     },
+    {
+      orgId, type: NotificationType.budget_alert, severity: "warning",
+      title: "Design approaching budget",
+      message: "Design department has used 75% of its $1,500 monthly budget with 10 days remaining.",
+      entityType: "department", entityId: deptMap.get("Design")!,
+    },
+    {
+      orgId, type: NotificationType.anomaly, severity: "info",
+      title: "Spike in Gemini usage",
+      message: "Gemini API usage increased 180% day-over-day. Driven by Frontend team experimentation.",
+      entityType: "provider", entityId: "gemini",
+    },
+    {
+      orgId, type: NotificationType.suggestion, severity: "info",
+      title: "Enable prompt caching for Anthropic",
+      message: "Only 12% cache hit rate detected. Enabling system prompt caching could save ~$85/mo.",
+    },
+    {
+      orgId, type: NotificationType.idle_seat, severity: "warning",
+      title: "Low utilization in Sales",
+      message: "Sales team has 60% of seats with less than 5 requests in the last 2 weeks.",
+      entityType: "department", entityId: deptMap.get("Sales")!,
+    },
   ];
 
   for (let i = 0; i < notifications.length; i++) {
@@ -384,7 +503,7 @@ async function main() {
     await prisma.notification.create({
       data: {
         ...n,
-        isRead: i > 2,
+        isRead: i > 3,
         createdAt: new Date(Date.now() - i * 3600000 * randInt(2, 12)),
       },
     });
@@ -408,6 +527,9 @@ async function main() {
   console.log(`  Batch records:    ${batchRecords}`);
   console.log(`  Audio records:    ${audioRecords}`);
   console.log(`  DAU records:      ${dauRecords.length}`);
+  console.log(`  Sync logs:        ${syncLogs.length}`);
+  console.log(`  Benchmarks:       ${benchmarkData.length}`);
+  console.log(`  Chargeback:       ${chargebackReports.length}`);
   console.log(`  Notifications:    ${notifications.length}`);
   console.log(`  Date range:       ${daysBefore(DAYS - 1).toISOString().slice(0, 10)} → ${daysBefore(0).toISOString().slice(0, 10)}`);
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━\n");

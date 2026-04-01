@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
   const orgId = await getOrgId();
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     where: { orgId, status: "active" },
   });
 
-  const companyTotals = await prisma.$queryRawUnsafe<
+  const companyTotals = await prisma.$queryRaw<
     Array<{
       total_cost: number;
       total_requests: number;
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
       users_with_usage: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        COALESCE(SUM(cost_usd), 0)::float AS total_cost,
        COALESCE(SUM(requests_count), 0)::bigint AS total_requests,
        COALESCE(SUM(input_tokens), 0)::bigint AS total_input,
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
        COALESCE(SUM(lines_suggested), 0)::bigint AS lines_suggested,
        COUNT(DISTINCT user_id)::int AS users_with_usage
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= '${startDate.toISOString()}'`
+     WHERE org_id = ${orgId} AND date >= ${startDate}`
   );
 
   const ct = companyTotals[0];
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       : 0;
   const idleSeats = totalActiveUsers - Number(ct.users_with_usage);
 
-  const byDepartment = await prisma.$queryRawUnsafe<
+  const byDepartment = await prisma.$queryRaw<
     Array<{
       department_id: string;
       department: string;
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
       active_users: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        u.department_id,
        COALESCE(u.department, 'Unassigned') AS department,
        COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost,
@@ -79,13 +80,13 @@ export async function GET(request: NextRequest) {
        COUNT(DISTINCT u.id)::int AS user_count,
        COUNT(DISTINCT ur.user_id)::int AS active_users
      FROM org_users u
-     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = '${orgId}' AND ur.date >= '${startDate.toISOString()}'
-     WHERE u.org_id = '${orgId}' AND u.status = 'active'
+     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${startDate}
+     WHERE u.org_id = ${orgId} AND u.status = 'active'
      GROUP BY u.department_id, u.department
      ORDER BY total_cost DESC`
   );
 
-  const byUser = await prisma.$queryRawUnsafe<
+  const byUser = await prisma.$queryRaw<
     Array<{
       user_id: string;
       name: string;
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest) {
       providers_used: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        u.id AS user_id,
        u.name,
        u.email,
@@ -113,21 +114,21 @@ export async function GET(request: NextRequest) {
        COUNT(DISTINCT ur.date)::int AS active_days,
        COUNT(DISTINCT ur.provider)::int AS providers_used
      FROM org_users u
-     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = '${orgId}' AND ur.date >= '${startDate.toISOString()}'
-     WHERE u.org_id = '${orgId}' AND u.status = 'active'
+     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId} AND ur.date >= ${startDate}
+     WHERE u.org_id = ${orgId} AND u.status = 'active'
      GROUP BY u.id, u.name, u.email, u.department, u.team
      ORDER BY total_cost DESC`
   );
 
-  const acceptRateTrend = await prisma.$queryRawUnsafe<
+  const acceptRateTrend = await prisma.$queryRaw<
     Array<{ date: string; lines_accepted: number; lines_suggested: number }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        date::text,
        COALESCE(SUM(lines_accepted), 0)::bigint AS lines_accepted,
        COALESCE(SUM(lines_suggested), 0)::bigint AS lines_suggested
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= '${startDate.toISOString()}'
+     WHERE org_id = ${orgId} AND date >= ${startDate}
        AND lines_suggested > 0
      GROUP BY date
      ORDER BY date`

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 function getSizeTier(count: number): string {
   if (count <= 50) return "1-50";
@@ -21,7 +22,7 @@ export async function GET() {
 
   const companySize = getSizeTier(activeUserCount);
 
-  const orgMetrics = await prisma.$queryRawUnsafe<
+  const orgMetrics = await prisma.$queryRaw<
     Array<{
       total_cost: number;
       users_with_usage: number;
@@ -30,14 +31,14 @@ export async function GET() {
       total_requests: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        COALESCE(SUM(cost_usd), 0)::float AS total_cost,
        COUNT(DISTINCT user_id)::int AS users_with_usage,
        COALESCE(SUM(lines_accepted), 0)::bigint AS lines_accepted,
        COALESCE(SUM(lines_suggested), 0)::bigint AS lines_suggested,
        COALESCE(SUM(requests_count), 0)::bigint AS total_requests
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= '${thirtyDaysAgo.toISOString()}'`
+     WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}`
   );
 
   const om = orgMetrics[0];
@@ -47,12 +48,12 @@ export async function GET() {
   const costPerLine = Number(om.lines_accepted) > 0
     ? om.total_cost / Number(om.lines_accepted) : 0;
 
-  const providerSpend = await prisma.$queryRawUnsafe<
+  const providerSpend = await prisma.$queryRaw<
     Array<{ provider: string; spend: number }>
   >(
-    `SELECT provider::text, SUM(cost_usd)::float AS spend
+    Prisma.sql`SELECT provider::text, SUM(cost_usd)::float AS spend
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= '${thirtyDaysAgo.toISOString()}'
+     WHERE org_id = ${orgId} AND date >= ${thirtyDaysAgo}
      GROUP BY provider`
   );
 
@@ -62,35 +63,32 @@ export async function GET() {
     providerMix[p.provider] = totalSpend > 0 ? p.spend / totalSpend : 0;
   }
 
-  const benchmarks = await prisma.$queryRawUnsafe<
-    Array<{
-      company_size: string;
-      median_cost_per_dev: number;
-      median_accept_rate: number;
-      median_cost_per_line: number;
-      provider_mix: Record<string, number>;
-      sample_size: number;
-    }>
-  >(
-    `SELECT company_size, median_cost_per_dev::float, median_accept_rate::float,
-            median_cost_per_line::float, provider_mix, sample_size
-     FROM benchmark_snapshots
-     WHERE company_size = '${companySize}'
-     ORDER BY date DESC LIMIT 1`
-  ).catch(() => []);
+  const benchmarks = await prisma.benchmarkSnapshot.findFirst({
+    where: { companySize },
+    orderBy: { date: "desc" },
+  }).catch(() => null);
 
-  const benchmark = benchmarks[0] ?? {
-    company_size: companySize,
-    median_cost_per_dev: companySize === "1-50" ? 180 : companySize === "50-200" ? 210 : companySize === "200-1000" ? 250 : 280,
-    median_accept_rate: 0.28,
-    median_cost_per_line: 0.012,
-    provider_mix: { cursor: 0.35, anthropic: 0.30, openai: 0.25, gemini: 0.10 },
-    sample_size: 0,
-  };
+  const benchmark = benchmarks
+    ? {
+        company_size: benchmarks.companySize,
+        median_cost_per_dev: Number(benchmarks.medianCostPerDev),
+        median_accept_rate: Number(benchmarks.medianAcceptRate),
+        median_cost_per_line: Number(benchmarks.medianCostPerLine),
+        provider_mix: benchmarks.providerMix as Record<string, number>,
+        sample_size: benchmarks.sampleSize,
+      }
+    : {
+        company_size: companySize,
+        median_cost_per_dev: companySize === "1-50" ? 180 : companySize === "50-200" ? 210 : companySize === "200-1000" ? 250 : 280,
+        median_accept_rate: 0.28,
+        median_cost_per_line: 0.012,
+        provider_mix: { cursor: 0.35, anthropic: 0.30, openai: 0.25, gemini: 0.10 },
+        sample_size: 0,
+      };
 
-  function compareMetric(yours: number, benchmark: number): { delta: number; percentDiff: number; assessment: string } {
-    const diff = yours - benchmark;
-    const pctDiff = benchmark > 0 ? (diff / benchmark) * 100 : 0;
+  function compareMetric(yours: number, bench: number): { delta: number; percentDiff: number; assessment: string } {
+    const diff = yours - bench;
+    const pctDiff = bench > 0 ? (diff / bench) * 100 : 0;
     let assessment = "on par";
     if (pctDiff > 20) assessment = "above";
     else if (pctDiff > 5) assessment = "slightly above";

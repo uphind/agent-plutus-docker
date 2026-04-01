@@ -74,22 +74,21 @@ export async function GET(request: NextRequest) {
            SUM(ur.cached_tokens)::bigint AS cached_tokens
     FROM usage_records ur
     ${[...joins].join(" ")}
-    WHERE ur.org_id = '${orgId}'
-      AND ur.date >= '${startDate.toISOString()}'
-      AND ur.date <= '${endDate.toISOString()}'
+    WHERE ur.org_id = $1
+      AND ur.date >= $2
+      AND ur.date <= $3
     GROUP BY ${groupBys.join(", ")}
     ORDER BY cost DESC
     LIMIT 500
   `;
 
-  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(query);
+  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(query, orgId, startDate, endDate);
 
   let comparison: Array<Record<string, unknown>> | undefined;
   if (compareStartDate && compareEndDate) {
-    const compQuery = query
-      .replace(`AND ur.date >= '${startDate.toISOString()}'`, `AND ur.date >= '${new Date(compareStartDate).toISOString()}'`)
-      .replace(`AND ur.date <= '${endDate.toISOString()}'`, `AND ur.date <= '${new Date(compareEndDate).toISOString()}'`);
-    comparison = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(compQuery);
+    comparison = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      query, orgId, new Date(compareStartDate), new Date(compareEndDate)
+    );
   }
 
   const formatted = rows.map((row) => {

@@ -62,14 +62,14 @@ const navSections = [
     label: "INTELLIGENCE",
     items: [
       { name: "Benchmarks", href: "/dashboard/benchmarks", icon: BarChart3 },
-      { name: "Contract Intel", href: "/dashboard/contract-intel", icon: ScrollText },
-      { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
     ],
   },
   {
     label: "CONFIGURATION",
     items: [
       { name: "Providers", href: "/dashboard/providers", icon: Plug },
+      { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
+      { name: "API Docs", href: "/dashboard/api-docs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
   },

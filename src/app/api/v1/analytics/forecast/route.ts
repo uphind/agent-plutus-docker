@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 function linearRegression(points: Array<{ x: number; y: number }>): { slope: number; intercept: number; r2: number } {
   const n = points.length;
@@ -40,14 +41,14 @@ export async function GET(request: NextRequest) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - historyDays);
 
-  const dailySpend = await prisma.$queryRawUnsafe<
+  const dailySpend = await prisma.$queryRaw<
     Array<{ date: string; spend: number; tokens: number; requests: number }>
   >(
-    `SELECT date::text, SUM(cost_usd)::float AS spend,
+    Prisma.sql`SELECT date::text, SUM(cost_usd)::float AS spend,
             SUM(input_tokens + output_tokens)::bigint AS tokens,
             SUM(requests_count)::bigint AS requests
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= '${startDate.toISOString()}'
+     WHERE org_id = ${orgId} AND date >= ${startDate}
      GROUP BY date ORDER BY date`
   );
 
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
       })()
     : null;
 
-  const departments = await prisma.$queryRawUnsafe<
+  const departments = await prisma.$queryRaw<
     Array<{
       department_id: string;
       department: string;
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
       daily_rate: number;
     }>
   >(
-    `SELECT
+    Prisma.sql`SELECT
        u.department_id,
        COALESCE(u.department, 'Unassigned') AS department,
        d.monthly_budget::float AS monthly_budget,
@@ -119,9 +120,9 @@ export async function GET(request: NextRequest) {
          GREATEST(EXTRACT(DAY FROM NOW() - DATE_TRUNC('month', NOW())) + 1, 1) AS daily_rate
      FROM org_users u
      LEFT JOIN departments d ON u.department_id = d.id
-     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = '${orgId}'
+     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId}
        AND ur.date >= DATE_TRUNC('month', NOW())
-     WHERE u.org_id = '${orgId}' AND u.status = 'active'
+     WHERE u.org_id = ${orgId} AND u.status = 'active'
      GROUP BY u.department_id, u.department, d.monthly_budget
      HAVING u.department_id IS NOT NULL`
   );
@@ -154,14 +155,14 @@ export async function GET(request: NextRequest) {
     })
     .sort((a, b) => (a.daysUntilExhausted || 999) - (b.daysUntilExhausted || 999));
 
-  const byProvider = await prisma.$queryRawUnsafe<
+  const byProvider = await prisma.$queryRaw<
     Array<{ provider: string; recent_spend: number; prior_spend: number }>
   >(
-    `SELECT provider::text,
+    Prisma.sql`SELECT provider::text,
        SUM(CASE WHEN date >= NOW() - INTERVAL '7 days' THEN cost_usd ELSE 0 END)::float AS recent_spend,
        SUM(CASE WHEN date >= NOW() - INTERVAL '14 days' AND date < NOW() - INTERVAL '7 days' THEN cost_usd ELSE 0 END)::float AS prior_spend
      FROM usage_records
-     WHERE org_id = '${orgId}' AND date >= NOW() - INTERVAL '14 days'
+     WHERE org_id = ${orgId} AND date >= NOW() - INTERVAL '14 days'
      GROUP BY provider`
   );
 

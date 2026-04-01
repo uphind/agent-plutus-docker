@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
   const orgId = await getOrgId();
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   const startDate = new Date(year, mon - 1, 1);
   const endDate = new Date(year, mon, 0, 23, 59, 59, 999);
 
-  const lineItems = await prisma.$queryRawUnsafe<
+  const lineItems = await prisma.$queryRaw<
     Array<{
       department_id: string;
       department: string;
@@ -32,45 +33,49 @@ export async function GET(request: NextRequest) {
       user_count: number;
     }>
   >(
-    `SELECT
-       d.id AS department_id,
-       d.name AS department,
-       COALESCE(d.cost_center, '') AS cost_center,
-       COALESCE(d.gl_code, '') AS gl_code,
-       ur.provider::text AS provider,
-       COALESCE(ur.model, 'unknown') AS model,
-       SUM(ur.cost_usd)::float AS total_cost,
-       SUM(ur.input_tokens + ur.output_tokens)::bigint AS total_tokens,
-       SUM(ur.requests_count)::bigint AS total_requests,
-       COUNT(DISTINCT ur.user_id)::int AS user_count
-     FROM usage_records ur
-     JOIN org_users u ON ur.user_id = u.id
-     JOIN departments d ON u.department_id = d.id
-     WHERE ur.org_id = '${orgId}'
-       AND ur.date >= '${startDate.toISOString()}'
-       AND ur.date <= '${endDate.toISOString()}'
-     GROUP BY d.id, d.name, d.cost_center, d.gl_code, ur.provider, ur.model
-     ORDER BY d.name, total_cost DESC`
+    Prisma.sql`
+      SELECT
+        d.id AS department_id,
+        d.name AS department,
+        COALESCE(d.cost_center, '') AS cost_center,
+        COALESCE(d.gl_code, '') AS gl_code,
+        ur.provider::text AS provider,
+        COALESCE(ur.model, 'unknown') AS model,
+        SUM(ur.cost_usd)::float AS total_cost,
+        SUM(ur.input_tokens + ur.output_tokens)::bigint AS total_tokens,
+        SUM(ur.requests_count)::bigint AS total_requests,
+        COUNT(DISTINCT ur.user_id)::int AS user_count
+      FROM usage_records ur
+      JOIN org_users u ON ur.user_id = u.id
+      JOIN departments d ON u.department_id = d.id
+      WHERE ur.org_id = ${orgId}
+        AND ur.date >= ${startDate}
+        AND ur.date <= ${endDate}
+      GROUP BY d.id, d.name, d.cost_center, d.gl_code, ur.provider, ur.model
+      ORDER BY d.name, total_cost DESC
+    `
   );
 
-  const unassigned = await prisma.$queryRawUnsafe<
+  const unassigned = await prisma.$queryRaw<
     Array<{ total_cost: number; total_tokens: number; total_requests: number; user_count: number; provider: string; model: string }>
   >(
-    `SELECT
-       ur.provider::text AS provider,
-       COALESCE(ur.model, 'unknown') AS model,
-       SUM(ur.cost_usd)::float AS total_cost,
-       SUM(ur.input_tokens + ur.output_tokens)::bigint AS total_tokens,
-       SUM(ur.requests_count)::bigint AS total_requests,
-       COUNT(DISTINCT ur.user_id)::int AS user_count
-     FROM usage_records ur
-     JOIN org_users u ON ur.user_id = u.id
-     WHERE ur.org_id = '${orgId}'
-       AND ur.date >= '${startDate.toISOString()}'
-       AND ur.date <= '${endDate.toISOString()}'
-       AND u.department_id IS NULL
-     GROUP BY ur.provider, ur.model
-     ORDER BY total_cost DESC`
+    Prisma.sql`
+      SELECT
+        ur.provider::text AS provider,
+        COALESCE(ur.model, 'unknown') AS model,
+        SUM(ur.cost_usd)::float AS total_cost,
+        SUM(ur.input_tokens + ur.output_tokens)::bigint AS total_tokens,
+        SUM(ur.requests_count)::bigint AS total_requests,
+        COUNT(DISTINCT ur.user_id)::int AS user_count
+      FROM usage_records ur
+      JOIN org_users u ON ur.user_id = u.id
+      WHERE ur.org_id = ${orgId}
+        AND ur.date >= ${startDate}
+        AND ur.date <= ${endDate}
+        AND u.department_id IS NULL
+      GROUP BY ur.provider, ur.model
+      ORDER BY total_cost DESC
+    `
   );
 
   const byCostCenter = new Map<string, {
@@ -103,18 +108,20 @@ export async function GET(request: NextRequest) {
   const totalCost = lineItems.reduce((s, i) => s + i.total_cost, 0)
     + unassigned.reduce((s, i) => s + i.total_cost, 0);
 
-  const departments = await prisma.$queryRawUnsafe<
+  const departments = await prisma.$queryRaw<
     Array<{ id: string; name: string; cost_center: string; gl_code: string; user_count: number }>
   >(
-    `SELECT d.id, d.name,
-            COALESCE(d.cost_center, '') AS cost_center,
-            COALESCE(d.gl_code, '') AS gl_code,
-            COUNT(u.id)::int AS user_count
-     FROM departments d
-     LEFT JOIN org_users u ON u.department_id = d.id AND u.status = 'active'
-     WHERE d.org_id = '${orgId}'
-     GROUP BY d.id, d.name, d.cost_center, d.gl_code
-     ORDER BY d.name`
+    Prisma.sql`
+      SELECT d.id, d.name,
+             COALESCE(d.cost_center, '') AS cost_center,
+             COALESCE(d.gl_code, '') AS gl_code,
+             COUNT(u.id)::int AS user_count
+      FROM departments d
+      LEFT JOIN org_users u ON u.department_id = d.id AND u.status = 'active'
+      WHERE d.org_id = ${orgId}
+      GROUP BY d.id, d.name, d.cost_center, d.gl_code
+      ORDER BY d.name
+    `
   );
 
   return NextResponse.json({

@@ -7,9 +7,9 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") ?? "csv";
-  const departments = searchParams.getAll("department");
-  const teams = searchParams.getAll("team");
-  const providers = searchParams.getAll("provider");
+  const departmentIds = searchParams.getAll("department");
+  const teamIds = searchParams.getAll("team");
+  const providerList = searchParams.getAll("provider");
 
   const customStart = searchParams.get("startDate");
   const customEnd = searchParams.get("endDate");
@@ -27,28 +27,32 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days);
   }
 
-  const conditions: string[] = [
-    `ur.org_id = '${orgId}'`,
-    `ur.date >= '${startDate.toISOString()}'`,
-  ];
+  const conditions: string[] = ["ur.org_id = $1", "ur.date >= $2"];
+  const params: unknown[] = [orgId, startDate];
+  let paramIdx = 3;
 
   if (endDate) {
-    conditions.push(`ur.date <= '${endDate.toISOString()}'`);
+    conditions.push(`ur.date <= $${paramIdx}`);
+    params.push(endDate);
+    paramIdx++;
   }
 
-  if (departments.length > 0) {
-    const escaped = departments.map((d) => `'${d.replace(/'/g, "''")}'`).join(",");
-    conditions.push(`u.department_id IN (${escaped})`);
+  if (departmentIds.length > 0) {
+    const placeholders = departmentIds.map(() => `$${paramIdx++}`).join(",");
+    conditions.push(`u.department_id IN (${placeholders})`);
+    params.push(...departmentIds);
   }
 
-  if (teams.length > 0) {
-    const escaped = teams.map((t) => `'${t.replace(/'/g, "''")}'`).join(",");
-    conditions.push(`u.team_id IN (${escaped})`);
+  if (teamIds.length > 0) {
+    const placeholders = teamIds.map(() => `$${paramIdx++}`).join(",");
+    conditions.push(`u.team_id IN (${placeholders})`);
+    params.push(...teamIds);
   }
 
-  if (providers.length > 0) {
-    const escaped = providers.map((p) => `'${p.replace(/'/g, "''")}'`).join(",");
-    conditions.push(`ur.provider::text IN (${escaped})`);
+  if (providerList.length > 0) {
+    const placeholders = providerList.map(() => `$${paramIdx++}`).join(",");
+    conditions.push(`ur.provider::text IN (${placeholders})`);
+    params.push(...providerList);
   }
 
   const whereClause = conditions.join(" AND ");
@@ -70,7 +74,7 @@ export async function GET(request: NextRequest) {
       team: string; provider: string; model: string; input_tokens: number;
       output_tokens: number; requests_count: number; cost_usd: number;
     }>
-  >(query);
+  >(query, ...params);
 
   if (format === "json") {
     return NextResponse.json({ rows });
