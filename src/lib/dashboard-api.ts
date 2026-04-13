@@ -185,9 +185,6 @@ export const api = {
   // Seat Optimization
   getSeatOptimization: (days = 30) => apiFetch(`/analytics/seat-optimization?days=${days}`),
 
-  // Chargeback
-  getChargeback: (month: string) => apiFetch(`/reports/chargeback?month=${month}`),
-
   // Benchmarks
   getBenchmarks: () => apiFetch("/analytics/benchmarks"),
 

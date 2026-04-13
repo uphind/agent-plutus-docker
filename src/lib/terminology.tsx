@@ -9,9 +9,9 @@ const SYSTEM_TERMS: Record<string, string> = {
   teams: "Teams",
   user: "User",
   users: "Users",
-  seat: "Seat",
-  seats: "Seats",
-  "seat optimization": "Seat Optimization",
+  seat: "User",
+  seats: "Users",
+  "seat optimization": "User Optimization",
 };
 
 interface TerminologyContextValue {
@@ -63,6 +63,9 @@ export function TerminologyProvider({ children }: { children: ReactNode }) {
       const lower = systemTerm.toLowerCase();
       if (overrides[lower]) {
         return applyCase(systemTerm, overrides[lower]);
+      }
+      if (lower.endsWith("s") && overrides[lower.slice(0, -1)]) {
+        return applyCase(systemTerm, overrides[lower.slice(0, -1)] + "s");
       }
       return SYSTEM_TERMS[lower] ?? systemTerm;
     },

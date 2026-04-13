@@ -44,8 +44,8 @@ const TERMINOLOGY_DEFAULTS: Array<{ systemTerm: string; label: string; descripti
   { systemTerm: "department", label: "Department", description: "Organizational unit grouping teams" },
   { systemTerm: "team", label: "Team", description: "Sub-unit within a department" },
   { systemTerm: "user", label: "User", description: "Individual person in the system" },
-  { systemTerm: "seat", label: "Seat", description: "Licensed position / active account" },
-  { systemTerm: "seat optimization", label: "Seat Optimization", description: "Feature for analyzing seat utilization" },
+  { systemTerm: "seat", label: "User", description: "Licensed position / active account" },
+  { systemTerm: "seat optimization", label: "User Optimization", description: "Feature for analyzing user utilization" },
 ];
 
 export default function SettingsPage() {

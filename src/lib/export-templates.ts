@@ -11,7 +11,7 @@ import {
   renderProviderPieChart,
 } from "@/lib/export-charts";
 
-export type TemplateId = "complete" | "cost" | "usage" | "executive" | "chargeback";
+export type TemplateId = "complete" | "cost" | "usage" | "executive";
 export type PdfOrientation = "landscape" | "portrait";
 
 export interface TemplateDefinition {
@@ -25,7 +25,6 @@ export const TEMPLATES: TemplateDefinition[] = [
   { id: "cost", name: "Cost Analysis", description: "Spend by department, provider, and model" },
   { id: "usage", name: "Usage Breakdown", description: "Tokens and requests by model and user" },
   { id: "executive", name: "Executive Summary", description: "High-level KPIs for leadership" },
-  { id: "chargeback", name: "Chargeback", description: "Cost allocation by department & cost center" },
 ];
 
 export interface UsageRow {
@@ -148,24 +147,6 @@ export function generateCsv(template: TemplateId, rows: UsageRow[]): string {
       return csv;
     }
 
-    case "chargeback": {
-      const totalCost = rows.reduce((s, r) => s + Number(r.cost_usd), 0);
-      const byDept = aggregate(rows, (r) => r.department || "Unassigned").sort((a, b) => b.cost - a.cost);
-      const byDeptProvider = aggregate(rows, (r) => `${r.department || "Unassigned"}|${providerName(r.provider)}`).sort((a, b) => b.cost - a.cost);
-
-      let csv = csvSection("Chargeback Summary", ["Department", "Cost", "% of Total", "Users", "Tokens", "Requests"],
-        byDept.map((d) => {
-          const users = new Set(rows.filter((r) => (r.department || "Unassigned") === d.key).map((r) => r.email)).size;
-          return [d.key, fmt$(d.cost), `${((d.cost / totalCost) * 100).toFixed(1)}%`, String(users), fmtN(d.tokens), fmtN(d.requests)];
-        }));
-      csv += "\n" + csvSection("Department × Provider Detail", ["Department", "Provider", "Cost", "Tokens", "Requests"],
-        byDeptProvider.map((dp) => {
-          const [dept, prov] = dp.key.split("|");
-          return [dept, prov, fmt$(dp.cost), fmtN(dp.tokens), fmtN(dp.requests)];
-        }));
-      csv += `\nTotal,${fmt$(totalCost)}\n`;
-      return csv;
-    }
   }
 }
 
@@ -466,49 +447,6 @@ export function generatePdf(
       break;
     }
 
-    case "chargeback": {
-      pdfHeader(doc, "Chargeback Report", period, filterParts);
-      let y = pdfKpiStrip(doc, 36, [
-        { label: "Total Cost", value: fmt$(totalCost) },
-        { label: "Departments", value: String(new Set(rows.map((r) => r.department || "Unassigned")).size) },
-        { label: "Users", value: String(uniqueUsers) },
-        { label: "Providers", value: String(new Set(rows.map((r) => r.provider)).size) },
-      ]);
-
-      if (rows.length > 0) {
-        const provImg = renderProviderPieChart(rows, chartHalf, chartPxH);
-        const barImg = renderProviderBarChart(rows, chartHalf, chartPxH);
-        y = addChartPair(doc, y, provImg, barImg, chartPxH);
-      }
-
-      const byDeptCb = aggregate(rows, (r) => r.department || "Unassigned").sort((a, b) => b.cost - a.cost);
-      y = pdfSectionTitle(doc, y, "Cost Allocation by Department");
-      autoTable(doc, {
-        startY: y,
-        head: [["Department", "Cost", "% of Total", "Users", "Tokens", "Requests"]],
-        body: byDeptCb.map((d) => {
-          const users = new Set(rows.filter((r) => (r.department || "Unassigned") === d.key).map((r) => r.email)).size;
-          return [d.key, fmt$(d.cost), `${((d.cost / totalCost) * 100).toFixed(1)}%`, String(users), fmtN(d.tokens), fmtN(d.requests)];
-        }),
-        styles: TABLE_STYLE, headStyles: HEAD_STYLE, alternateRowStyles: ROW_ALT, margin: { left: MARGIN, right: MARGIN },
-      });
-
-      const byDeptProv = aggregate(rows, (r) => `${r.department || "Unassigned"}|${providerName(r.provider)}`).sort((a, b) => b.cost - a.cost);
-      y = getLastY(doc) + 6;
-      y = pdfSectionTitle(doc, y, "Department × Provider Detail");
-      autoTable(doc, {
-        startY: y,
-        head: [["Department", "Provider", "Cost", "Tokens", "Requests"]],
-        body: byDeptProv.map((dp) => { const [dept, prov] = dp.key.split("|"); return [dept, prov, fmt$(dp.cost), fmtN(dp.tokens), fmtN(dp.requests)]; }),
-        styles: TABLE_STYLE, headStyles: HEAD_STYLE, alternateRowStyles: ROW_ALT, margin: { left: MARGIN, right: MARGIN },
-      });
-
-      y = getLastY(doc) + 10;
-      doc.setFontSize(10);
-      doc.setTextColor(80, 80, 80);
-      doc.text(`Grand Total: ${fmt$(totalCost)}`, MARGIN, y);
-      break;
-    }
   }
 
   pdfFooters(doc);

@@ -547,8 +547,8 @@ ORDER BY total_cost DESC`,
             bugbot_dau: 1
           }]
         }, null, 2),
-        notes: "Agent Plutus stores DAU in the cursor_dau table for seat optimization analysis.",
-        usedFor: "Daily active user counts → cursor_dau table, seat optimization",
+        notes: "Agent Plutus stores DAU in the cursor_dau table for user optimization analysis.",
+        usedFor: "Daily active user counts → cursor_dau table, user optimization",
       },
       {
         method: "GET",

@@ -25,7 +25,6 @@ import {
   DollarSign,
   BarChart3,
   Briefcase,
-  Receipt,
 } from "lucide-react";
 
 type TimeframeMode = "preset" | "custom";
@@ -70,7 +69,6 @@ const TEMPLATE_ICONS: Record<TemplateId, typeof FileStack> = {
   cost: DollarSign,
   usage: BarChart3,
   executive: Briefcase,
-  chargeback: Receipt,
 };
 
 const PROVIDER_KEYS = Object.keys(PROVIDER_LABELS);
