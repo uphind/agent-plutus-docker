@@ -15,7 +15,7 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { DollarSign, Zap, Hash, Settings2 } from "lucide-react";
+import { DollarSign, Zap, Hash, Settings2, Sparkles, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 
 interface UserDetail {
   user: {
@@ -44,11 +44,35 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  interface RecRow {
+    model: string;
+    provider: string;
+    category: string;
+    total_cost_usd: number;
+    recommendation_global: string;
+    is_cheaper_global: boolean;
+    est_savings_global_usd: number | null;
+    recommendation_same_vendor: string;
+    is_cheaper_same_vendor: boolean;
+    est_savings_same_vendor_usd: number | null;
+    why_cheaper_plain_english: string;
+  }
+  const [recs, setRecs] = useState<RecRow[]>([]);
+  const [recsLoading, setRecsLoading] = useState(true);
+  const [expandedRec, setExpandedRec] = useState<string | null>(null);
+
   const loadData = useCallback(() => {
     api.getByUser(30, { userId })
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+
+    api.getRecommendations({ userId })
+      .then((d: { rows: RecRow[] }) => {
+        setRecs(d.rows?.filter((r: RecRow) => r.is_cheaper_global || r.is_cheaper_same_vendor) ?? []);
+      })
+      .catch(() => setRecs([]))
+      .finally(() => setRecsLoading(false));
   }, [userId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -167,6 +191,46 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         <StatCard title="Total Tokens" value={formatTokens(totalTokens)} icon={Zap} />
         <StatCard title="Requests" value={totalRequests.toLocaleString()} icon={Hash} />
       </div>
+
+      {/* Cost Optimization Recommendations */}
+      {!recsLoading && recs.length > 0 && (
+        <Card className="mb-6 overflow-hidden border-emerald-200/50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+              </div>
+              <CardTitle className="text-sm">Cost Optimization</CardTitle>
+              <Badge variant="success" className="ml-auto">
+                {formatCurrency(recs.reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0))} potential savings
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <table className="w-full">
+              <thead>
+                <tr className="border-y border-border bg-muted/30">
+                  <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Model</th>
+                  <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
+                  <th className="px-5 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
+                  <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Best (any vendor)</th>
+                  <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Best (same vendor)</th>
+                  <th className="px-5 py-2 w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {recs.map((r) => {
+                  const key = `${r.provider}-${r.model}`;
+                  const isOpen = expandedRec === key;
+                  return (
+                    <UserRecRow key={key} row={r} isOpen={isOpen} onToggle={() => setExpandedRec(isOpen ? null : key)} />
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs
         tabs={[
@@ -316,5 +380,68 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </Modal>
     </div>
+  );
+}
+
+const REC_CATEGORY_COLORS: Record<string, string> = {
+  "\u{1F9D1}\u200D\u{1F4BB} Power / Technical": "bg-indigo-500/10 text-indigo-700",
+  "\u270D\uFE0F Content Generator": "bg-amber-500/10 text-amber-700",
+  "\u{1F4AC} Conversational": "bg-sky-500/10 text-sky-700",
+  "\u{1F50D} Lookup / Q&A": "bg-emerald-500/10 text-emerald-700",
+  "\u{1F9EA} Explorer": "bg-violet-500/10 text-violet-700",
+};
+
+function UserRecRow({ row, isOpen, onToggle }: {
+  row: {
+    model: string; provider: string; category: string; total_cost_usd: number;
+    recommendation_global: string; is_cheaper_global: boolean; est_savings_global_usd: number | null;
+    recommendation_same_vendor: string; is_cheaper_same_vendor: boolean; est_savings_same_vendor_usd: number | null;
+    why_cheaper_plain_english: string;
+  };
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const catClass = REC_CATEGORY_COLORS[row.category] ?? "bg-gray-500/10 text-gray-700";
+  return (
+    <>
+      <tr onClick={onToggle} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer">
+        <td className="px-5 py-2.5">
+          <p className="text-xs font-medium">{row.model}</p>
+          <p className="text-[10px] text-muted-foreground">{row.provider}</p>
+        </td>
+        <td className="px-5 py-2.5">
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${catClass}`}>{row.category}</span>
+        </td>
+        <td className="px-5 py-2.5 text-right text-xs font-medium tabular-nums">{formatCurrency(row.total_cost_usd)}</td>
+        <td className="px-5 py-2.5">
+          {row.is_cheaper_global ? (
+            <div className="flex items-center gap-1">
+              <ArrowRight className="h-3 w-3 text-emerald-600 shrink-0" />
+              <span className="text-xs truncate max-w-[140px]">{row.recommendation_global}</span>
+              <span className="text-xs font-semibold text-emerald-600 tabular-nums">{formatCurrency(row.est_savings_global_usd ?? 0)}</span>
+            </div>
+          ) : <span className="text-xs text-muted-foreground">&mdash;</span>}
+        </td>
+        <td className="px-5 py-2.5">
+          {row.is_cheaper_same_vendor ? (
+            <div className="flex items-center gap-1">
+              <ArrowRight className="h-3 w-3 text-sky-600 shrink-0" />
+              <span className="text-xs truncate max-w-[140px]">{row.recommendation_same_vendor}</span>
+              <span className="text-xs font-semibold text-sky-600 tabular-nums">{formatCurrency(row.est_savings_same_vendor_usd ?? 0)}</span>
+            </div>
+          ) : <span className="text-xs text-muted-foreground">&mdash;</span>}
+        </td>
+        <td className="px-5 py-2.5">
+          {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+        </td>
+      </tr>
+      {isOpen && (
+        <tr className="bg-muted/20">
+          <td colSpan={6} className="px-6 py-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">{row.why_cheaper_plain_english}</p>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

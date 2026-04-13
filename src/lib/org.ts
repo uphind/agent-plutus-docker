@@ -8,3 +8,11 @@ export async function getOrgId(): Promise<string> {
   cachedOrgId = org.id;
   return cachedOrgId;
 }
+
+export async function getOrgIdSafe(): Promise<string | null> {
+  if (cachedOrgId) return cachedOrgId;
+  const org = await prisma.organization.findFirst();
+  if (!org) return null;
+  cachedOrgId = org.id;
+  return cachedOrgId;
+}

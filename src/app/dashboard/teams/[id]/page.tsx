@@ -20,6 +20,7 @@ import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
 import {
   Settings2, Search, ChevronUp, ChevronDown, ArrowUpDown,
+  Sparkles, ArrowRight, ChevronRight,
 } from "lucide-react";
 
 interface UserData {
@@ -43,6 +44,23 @@ interface TeamDetail {
 type UserSortField = "name" | "job_title" | "total_cost" | "total_tokens" | "total_requests" | "pctOfBudget";
 type SortDir = "asc" | "desc";
 
+interface RecRow {
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  model: string;
+  provider: string;
+  category: string;
+  total_cost_usd: number;
+  recommendation_global: string;
+  is_cheaper_global: boolean;
+  est_savings_global_usd: number | null;
+  recommendation_same_vendor: string;
+  is_cheaper_same_vendor: boolean;
+  est_savings_same_vendor_usd: number | null;
+  why_cheaper_plain_english: string;
+}
+
 export default function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [data, setData] = useState<TeamDetail | null>(null);
@@ -58,9 +76,22 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
   const [userSortDir, setUserSortDir] = useState<SortDir>("desc");
   const [userSearch, setUserSearch] = useState("");
 
+  // AI recommendations
+  const [recs, setRecs] = useState<RecRow[]>([]);
+  const [recsLoading, setRecsLoading] = useState(true);
+  const [expandedRecUsers, setExpandedRecUsers] = useState<Set<string>>(new Set());
+  const [expandedRecModels, setExpandedRecModels] = useState<Set<string>>(new Set());
+
   const load = () => {
     setLoading(true);
     api.getTeam(id).then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
+
+    api.getRecommendations({ teamId: id })
+      .then((d: { rows: RecRow[] }) => {
+        setRecs(d.rows?.filter((r: RecRow) => r.is_cheaper_global || r.is_cheaper_same_vendor) ?? []);
+      })
+      .catch(() => setRecs([]))
+      .finally(() => setRecsLoading(false));
   };
 
   useEffect(load, [id]);
@@ -235,6 +266,131 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
           <TopModelsTable data={data.byModel} title="Top Models (This Month)" />
         </div>
       )}
+
+      {/* Cost Optimization Recommendations */}
+      {!recsLoading && recs.length > 0 && (() => {
+        const recsByUser = new Map<string, RecRow[]>();
+        for (const r of recs) {
+          const key = r.user_email;
+          if (!recsByUser.has(key)) recsByUser.set(key, []);
+          recsByUser.get(key)!.push(r);
+        }
+        const userEntries = [...recsByUser.entries()].sort((a, b) => {
+          const savA = a[1].reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0);
+          const savB = b[1].reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0);
+          return savB - savA;
+        });
+        const totalTeamSavings = recs.reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0);
+
+        return (
+          <Card className="mb-6 overflow-hidden border-emerald-200/50">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                </div>
+                <CardTitle className="text-sm">Cost Optimization</CardTitle>
+                <Badge variant="success" className="ml-auto">
+                  {formatCurrency(totalTeamSavings)} potential savings
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {userEntries.length} member{userEntries.length !== 1 ? "s" : ""} with model switching opportunities
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {userEntries.map(([email, userRecs]) => {
+                const userName = userRecs[0].user_name || email;
+                const userId = userRecs[0].user_id;
+                const isUserOpen = expandedRecUsers.has(email);
+                const userSavings = userRecs.reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0);
+
+                return (
+                  <div key={email} className="border-t border-border">
+                    <button
+                      onClick={() => setExpandedRecUsers((prev) => {
+                        const next = new Set(prev);
+                        next.has(email) ? next.delete(email) : next.add(email);
+                        return next;
+                      })}
+                      className="w-full flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors text-left"
+                    >
+                      <span className="text-muted-foreground transition-transform duration-200" style={{ transform: isUserOpen ? "rotate(90deg)" : "rotate(0deg)" }}>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </span>
+                      <Avatar name={userName} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium">{userName}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {email} · {userRecs.length} model{userRecs.length !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      {userSavings > 0 && (
+                        <span className="text-xs font-semibold text-emerald-600 tabular-nums">{formatCurrency(userSavings)}</span>
+                      )}
+                    </button>
+
+                    {isUserOpen && (
+                      <div className="bg-muted/20 px-5 pb-3 space-y-2">
+                        {userRecs.map((r) => {
+                          const modelKey = `${email}-${r.model}`;
+                          const isModelOpen = expandedRecModels.has(modelKey);
+
+                          return (
+                            <div key={modelKey} className="rounded-lg border border-border/50 bg-background overflow-hidden">
+                              <button
+                                onClick={() => setExpandedRecModels((prev) => {
+                                  const next = new Set(prev);
+                                  next.has(modelKey) ? next.delete(modelKey) : next.add(modelKey);
+                                  return next;
+                                })}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/20 transition-colors text-left"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-mono text-muted-foreground">{r.model}</span>
+                                    <span className="text-xs text-muted-foreground">·</span>
+                                    <span className="text-xs tabular-nums">{formatCurrency(r.total_cost_usd)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-1">
+                                    {r.is_cheaper_global && (
+                                      <span className="flex items-center gap-1 text-xs">
+                                        <ArrowRight className="h-3 w-3 text-emerald-600" />
+                                        <span className="truncate max-w-[140px]">{r.recommendation_global}</span>
+                                        <span className="font-semibold text-emerald-600 tabular-nums">{formatCurrency(r.est_savings_global_usd ?? 0)}</span>
+                                      </span>
+                                    )}
+                                    {r.is_cheaper_same_vendor && (
+                                      <span className="flex items-center gap-1 text-xs">
+                                        <ArrowRight className="h-3 w-3 text-sky-600" />
+                                        <span className="truncate max-w-[140px]">{r.recommendation_same_vendor}</span>
+                                        <span className="font-semibold text-sky-600 tabular-nums">{formatCurrency(r.est_savings_same_vendor_usd ?? 0)}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {isModelOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                              </button>
+                              {isModelOpen && (
+                                <div className="px-3 pb-3 border-t border-border/30 pt-2">
+                                  <p className="text-[10px] text-muted-foreground leading-relaxed">{r.why_cheaper_plain_english}</p>
+                                  <Link href={`/dashboard/users/${userId}`} className="text-[10px] text-brand hover:underline mt-1 inline-block">
+                                    View user details
+                                  </Link>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Users — sortable, searchable */}
       <Card>

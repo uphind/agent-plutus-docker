@@ -57,6 +57,15 @@ export const api = {
   // Suggestions
   getSuggestions: () => apiFetch("/suggestions"),
 
+  // AI Recommendations (classifier)
+  getRecommendations: (params?: { userId?: string; teamId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.userId) qs.set("userId", params.userId);
+    if (params?.teamId) qs.set("teamId", params.teamId);
+    const q = qs.toString();
+    return apiFetch(`/recommendations${q ? `?${q}` : ""}`);
+  },
+
   // Anomalies
   getAnomalies: () => apiFetch("/analytics/anomalies"),
 

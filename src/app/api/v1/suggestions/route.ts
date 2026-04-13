@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getOrgId } from "@/lib/org";
+import { getOrgIdSafe } from "@/lib/org";
 import { processPreAggregated } from "@/lib/classifier";
 
 interface Suggestion {
@@ -15,8 +15,14 @@ interface Suggestion {
   linkTo?: string;
 }
 
+const EMPTY_RESPONSE = {
+  suggestions: [],
+  summary: { total: 0, critical: 0, warning: 0, info: 0, totalEstimatedSavings: 0 },
+};
+
 export async function GET() {
-  const orgId = await getOrgId();
+  const orgId = await getOrgIdSafe();
+  if (!orgId) return NextResponse.json(EMPTY_RESPONSE);
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const daysElapsed = Math.max(1, Math.floor((now.getTime() - monthStart.getTime()) / 86400000));

@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
 import {
   Lightbulb, DollarSign, UserX, Zap, TrendingDown,
   ChevronRight, ChevronDown, Eye, EyeOff, PiggyBank, Sparkles,
-  Brain,
+  Brain, ArrowRight, Users,
 } from "lucide-react";
 
 interface Suggestion {
@@ -36,6 +37,43 @@ interface SuggestionsData {
   };
 }
 
+interface RecRow {
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  team_id: string | null;
+  team_name: string | null;
+  provider: string;
+  model: string;
+  total_cost_usd: number;
+  category: string;
+  recommendation_global: string;
+  is_cheaper_global: boolean;
+  est_savings_global_usd: number | null;
+  recommendation_same_vendor: string;
+  is_cheaper_same_vendor: boolean;
+  est_savings_same_vendor_usd: number | null;
+  why_cheaper_plain_english: string;
+}
+
+interface TeamGroup {
+  team_id: string | null;
+  team_name: string;
+  totalSavingsGlobal: number;
+  totalSavingsSameVendor: number;
+  totalCost: number;
+  users: RecRow[];
+}
+
+interface RecData {
+  byTeam: Record<string, TeamGroup>;
+  summary: {
+    totalCost: number;
+    estSavingsGlobal: number;
+    estSavingsSameVendor: number;
+  } | null;
+}
+
 const CATEGORY_META: Record<string, { label: string; icon: typeof Lightbulb; bg: string; iconColor: string }> = {
   ai_classification: { label: "AI Model Optimization", icon: Brain, bg: "bg-indigo-500/10", iconColor: "#6366f1" },
   cost_optimization: { label: "Cost Optimization", icon: DollarSign, bg: "bg-emerald-500/10", iconColor: "#10b981" },
@@ -48,6 +86,14 @@ const SEVERITY_DOT: Record<string, string> = {
   critical: "bg-red-500",
   warning: "bg-amber-400",
   info: "bg-blue-400",
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "\u{1F9D1}\u200D\u{1F4BB} Power / Technical": "bg-indigo-500/10 text-indigo-700",
+  "\u270D\uFE0F Content Generator": "bg-amber-500/10 text-amber-700",
+  "\u{1F4AC} Conversational": "bg-sky-500/10 text-sky-700",
+  "\u{1F50D} Lookup / Q&A": "bg-emerald-500/10 text-emerald-700",
+  "\u{1F9EA} Explorer": "bg-violet-500/10 text-violet-700",
 };
 
 function getDismissed(): Set<string> {
@@ -65,19 +111,31 @@ function persistDismissed(ids: Set<string>) {
 
 export default function SuggestionsPage() {
   const [data, setData] = useState<SuggestionsData | null>(null);
+  const [recData, setRecData] = useState<RecData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissedState] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showDismissed, setShowDismissed] = useState(false);
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/suggestions");
-      if (!res.ok) throw new Error(`Failed to load suggestions (${res.status})`);
-      setData(await res.json());
+      const [sugRes, recRes] = await Promise.all([
+        fetch("/api/v1/suggestions"),
+        fetch("/api/v1/recommendations"),
+      ]);
+      if (!sugRes.ok) throw new Error(`Failed to load suggestions (${sugRes.status})`);
+      const sugJson = await sugRes.json();
+      // Filter out ai_classification suggestions — we show those via recommendations
+      sugJson.suggestions = sugJson.suggestions.filter(
+        (s: Suggestion) => s.category !== "ai_classification"
+      );
+      setData(sugJson);
+      if (recRes.ok) setRecData(await recRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load suggestions");
     } finally {
@@ -116,18 +174,47 @@ export default function SuggestionsPage() {
     });
   };
 
+  const toggleTeam = (teamId: string) => {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev);
+      next.has(teamId) ? next.delete(teamId) : next.add(teamId);
+      return next;
+    });
+  };
+
+  const toggleUser = (key: string) => {
+    setExpandedUsers((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
   const all = data?.suggestions ?? [];
   const visible = all.filter((s) => !dismissed.has(s.id));
   const dismissedItems = all.filter((s) => dismissed.has(s.id));
-  const totalSavings = visible.reduce((s, v) => s + (v.estimatedSavings ?? 0), 0);
-  const actionableCount = visible.filter((s) => s.severity !== "info").length;
+
+  // AI recommendation teams with savings
+  const recTeams = recData?.byTeam
+    ? Object.entries(recData.byTeam)
+        .filter(([, t]) => t.totalSavingsGlobal > 0 || t.totalSavingsSameVendor > 0)
+        .sort(([, a], [, b]) => b.totalSavingsGlobal - a.totalSavingsGlobal)
+    : [];
+
+  const recSavings = recData?.summary?.estSavingsGlobal ?? 0;
+  const totalSavings = visible.reduce((s, v) => s + (v.estimatedSavings ?? 0), 0) + recSavings;
+  const actionableCount = visible.filter((s) => s.severity !== "info").length + recTeams.length;
   const topOpportunity = visible.filter((s) => (s.estimatedSavings ?? 0) > 0).sort((a, b) => (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0))[0];
+  const topRecSavings = recSavings;
+  const bestTopSavings = Math.max(topOpportunity?.estimatedSavings ?? 0, topRecSavings);
 
   const grouped = new Map<string, Suggestion[]>();
   for (const s of visible) {
     if (!grouped.has(s.category)) grouped.set(s.category, []);
     grouped.get(s.category)!.push(s);
   }
+
+  const totalSuggestionCount = visible.length + recTeams.length;
 
   if (loading) {
     return (
@@ -144,14 +231,26 @@ export default function SuggestionsPage() {
       <div className="space-y-6">
         <Header title="Suggestions" description="Actionable recommendations to optimize your AI spend" />
         <Card><CardContent className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-sm text-destructive font-medium">{error}</p>
-          <button onClick={fetchData} className="mt-3 text-xs text-brand hover:underline">Try again</button>
+          <div className="h-14 w-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-5">
+            <Lightbulb className="h-7 w-7 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-semibold mb-1">No provider data yet</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Connect a provider and sync your usage data to see cost optimization suggestions.
+          </p>
+          <div className="flex items-center gap-3 mt-4">
+            <Link href="/dashboard/providers" className="text-sm text-brand hover:underline">
+              Connect a provider
+            </Link>
+            <span className="text-muted-foreground">·</span>
+            <button onClick={fetchData} className="text-sm text-muted-foreground hover:text-foreground">Try again</button>
+          </div>
         </CardContent></Card>
       </div>
     );
   }
 
-  if (!data || visible.length === 0) {
+  if (!data || (totalSuggestionCount === 0)) {
     return (
       <div className="space-y-6">
         <Header title="Suggestions" description="Actionable recommendations to optimize your AI spend"
@@ -165,8 +264,19 @@ export default function SuggestionsPage() {
           <div className="h-14 w-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-5">
             <Lightbulb className="h-7 w-7 text-emerald-500" />
           </div>
-          <h2 className="text-lg font-semibold mb-1">All optimized</h2>
-          <p className="text-sm text-muted-foreground max-w-sm">No recommendations right now. Your AI spend looks well-managed.</p>
+          <h2 className="text-lg font-semibold mb-1">
+            {data?.summary?.total === 0 ? "All optimized" : "No provider data yet"}
+          </h2>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            {data?.summary?.total === 0
+              ? "No recommendations right now. Your AI spend looks well-managed."
+              : "Connect a provider and sync your usage data to see cost optimization suggestions."}
+          </p>
+          {(!data || data.summary.total === undefined) && (
+            <Link href="/dashboard/providers" className="mt-4 text-sm text-brand hover:underline">
+              Connect a provider
+            </Link>
+          )}
         </CardContent></Card>
       </div>
     );
@@ -186,18 +296,164 @@ export default function SuggestionsPage() {
       {/* KPI row */}
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard title="Potential Savings" value={formatCurrency(totalSavings)} subtitle="estimated per month" icon={PiggyBank} />
-        <StatCard title="Suggestions" value={String(visible.length)} subtitle={`${actionableCount} actionable`} icon={Lightbulb} />
+        <StatCard title="Suggestions" value={String(totalSuggestionCount)} subtitle={`${actionableCount} actionable`} icon={Lightbulb} />
         <StatCard
           title="Top Opportunity"
-          value={topOpportunity ? (
-            <span className="text-emerald-600">{formatCurrency(topOpportunity.estimatedSavings ?? 0)}<span className="text-xs font-normal text-muted-foreground">/mo</span></span>
-          ) : "—"}
-          subtitle={topOpportunity ? topOpportunity.title : "No savings identified"}
+          value={
+            bestTopSavings > 0 ? (
+              <span className="text-emerald-600">{formatCurrency(bestTopSavings)}<span className="text-xs font-normal text-muted-foreground">/mo</span></span>
+            ) : "—"
+          }
+          subtitle={
+            bestTopSavings === topRecSavings && topRecSavings > 0
+              ? "AI Model Optimization"
+              : topOpportunity?.title ?? "No savings identified"
+          }
           icon={Sparkles}
         />
       </div>
 
-      {/* Grouped tables */}
+      {/* AI Model Optimization — team → user hierarchy */}
+      {recTeams.length > 0 && (
+        <Card className="overflow-hidden">
+          <button
+            onClick={() => toggleCat("__ai_recs__")}
+            className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors text-left"
+          >
+            <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0 bg-indigo-500/10">
+              <Brain className="h-4 w-4" style={{ color: "#6366f1" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">AI Model Optimization</p>
+              {recSavings > 0 && (
+                <p className="text-[11px] text-emerald-600 font-medium">{formatCurrency(recSavings)} potential savings</p>
+              )}
+            </div>
+            <Badge variant="outline">{recTeams.length} team{recTeams.length !== 1 ? "s" : ""}</Badge>
+            {!collapsed.has("__ai_recs__") ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </button>
+
+          {!collapsed.has("__ai_recs__") && (
+            <div className="border-t border-border">
+              {recTeams.map(([teamKey, teamData]) => {
+                const isTeamOpen = expandedTeams.has(teamKey);
+                const savingsUsers = teamData.users.filter(
+                  (u) => u.is_cheaper_global || u.is_cheaper_same_vendor
+                );
+                const uniqueUsers = [...new Set(savingsUsers.map((u) => u.user_email))];
+
+                return (
+                  <div key={teamKey} className="border-b border-border last:border-0">
+                    {/* Team row */}
+                    <button
+                      onClick={() => toggleTeam(teamKey)}
+                      className="w-full flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors text-left"
+                    >
+                      <span className="text-muted-foreground transition-transform duration-200" style={{ transform: isTeamOpen ? "rotate(90deg)" : "rotate(0deg)" }}>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </span>
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{teamData.team_name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {uniqueUsers.length} user{uniqueUsers.length !== 1 ? "s" : ""} with savings · {formatCurrency(teamData.totalCost)} total spend
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {teamData.totalSavingsGlobal > 0 && (
+                          <p className="text-xs font-semibold text-emerald-600 tabular-nums">{formatCurrency(teamData.totalSavingsGlobal)}</p>
+                        )}
+                        <p className="text-[10px] text-muted-foreground">potential savings</p>
+                      </div>
+                    </button>
+
+                    {/* Expanded: users in this team */}
+                    {isTeamOpen && (
+                      <div className="bg-muted/20 border-t border-border/50">
+                        {uniqueUsers.map((email) => {
+                          const userRows = savingsUsers.filter((u) => u.user_email === email);
+                          const userName = userRows[0].user_name || email;
+                          const userId = userRows[0].user_id;
+                          const userKey = `${teamKey}-${email}`;
+                          const isUserOpen = expandedUsers.has(userKey);
+                          const userTotalSavings = userRows.reduce((s, r) => s + (r.est_savings_global_usd ?? 0), 0);
+
+                          return (
+                            <div key={email} className="border-b border-border/30 last:border-0">
+                              <button
+                                onClick={() => toggleUser(userKey)}
+                                className="w-full flex items-center gap-3 pl-12 pr-5 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                              >
+                                <span className="text-muted-foreground transition-transform duration-200" style={{ transform: isUserOpen ? "rotate(90deg)" : "rotate(0deg)" }}>
+                                  <ChevronRight className="h-3 w-3" />
+                                </span>
+                                <Avatar name={userName} size="sm" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium">{userName}</p>
+                                  <p className="text-[10px] text-muted-foreground">{email} · {userRows.length} model{userRows.length !== 1 ? "s" : ""}</p>
+                                </div>
+                                {userTotalSavings > 0 && (
+                                  <span className="text-xs font-semibold text-emerald-600 tabular-nums">{formatCurrency(userTotalSavings)}</span>
+                                )}
+                              </button>
+
+                              {isUserOpen && (
+                                <div className="pl-20 pr-5 pb-3 space-y-2">
+                                  {userRows.map((row) => (
+                                    <div key={`${row.user_email}-${row.model}`} className="rounded-lg border border-border/50 bg-background p-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono text-muted-foreground">{row.model}</span>
+                                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[row.category] ?? "bg-gray-500/10 text-gray-700"}`}>
+                                            {row.category}
+                                          </span>
+                                        </div>
+                                        <span className="text-xs text-muted-foreground">{formatCurrency(row.total_cost_usd)} spent</span>
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {row.is_cheaper_global && (
+                                          <div className="flex items-center gap-1.5">
+                                            <ArrowRight className="h-3 w-3 text-emerald-600 shrink-0" />
+                                            <span className="text-xs truncate">{row.recommendation_global}</span>
+                                            <span className="text-xs font-semibold text-emerald-600 tabular-nums whitespace-nowrap">
+                                              {formatCurrency(row.est_savings_global_usd ?? 0)}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {row.is_cheaper_same_vendor && (
+                                          <div className="flex items-center gap-1.5">
+                                            <ArrowRight className="h-3 w-3 text-sky-600 shrink-0" />
+                                            <span className="text-xs truncate">{row.recommendation_same_vendor}</span>
+                                            <span className="text-xs font-semibold text-sky-600 tabular-nums whitespace-nowrap">
+                                              {formatCurrency(row.est_savings_same_vendor_usd ?? 0)}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed line-clamp-2">{row.why_cheaper_plain_english}</p>
+                                      <div className="mt-2">
+                                        <Link href={`/dashboard/users/${userId}`} className="text-[10px] text-brand hover:underline">
+                                          View user details
+                                        </Link>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Other suggestion categories */}
       {Array.from(grouped.entries()).map(([category, items]) => {
         const meta = CATEGORY_META[category] ?? { label: category, icon: Lightbulb, bg: "bg-gray-500/10", iconColor: "#6b7280" };
         const CatIcon = meta.icon;
@@ -263,14 +519,14 @@ export default function SuggestionsPage() {
                               {s.affectedEntities.length > 3 && (
                                 <MoreChips items={s.affectedEntities.slice(3)} />
                               )}
-                              {s.affectedEntities.length === 0 && <span className="text-[10px] text-muted-foreground">—</span>}
+                              {s.affectedEntities.length === 0 && <span className="text-[10px] text-muted-foreground">&mdash;</span>}
                             </div>
                           </td>
                           <td className="px-5 py-3 text-right">
                             {hasSavings ? (
                               <span className="text-sm font-semibold text-emerald-600 tabular-nums">{formatCurrency(s.estimatedSavings!)}<span className="text-[10px] font-normal text-muted-foreground">/mo</span></span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-xs text-muted-foreground">&mdash;</span>
                             )}
                           </td>
                           <td className="px-5 py-3">
