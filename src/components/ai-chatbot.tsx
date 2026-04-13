@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, X, Loader2, Settings, Minus } from "lucide-react";
+import { Send, X, Loader2, Settings, Minus } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { loadAiConfig } from "@/app/dashboard/settings/page";
 
@@ -87,7 +88,7 @@ export function AiChatbot() {
         className="fixed bottom-5 right-5 z-[9998] h-12 w-12 rounded-full bg-brand text-white shadow-lg hover:bg-brand-light transition-all duration-200 flex items-center justify-center hover:scale-105 active:scale-95"
         style={{ boxShadow: "0 4px 20px rgba(22, 22, 231, 0.3)" }}
       >
-        {open ? <X className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+        {open ? <X className="h-5 w-5" /> : <Image src="/logo/symbol.svg" alt="Agent Plutus" width={22} height={22} className="brightness-0 invert" />}
       </button>
 
       {/* Chat panel */}
@@ -99,7 +100,7 @@ export function AiChatbot() {
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card shrink-0">
             <div className="h-8 w-8 rounded-lg bg-brand-subtle flex items-center justify-center">
-              <Bot className="h-4 w-4 text-brand" />
+              <Image src="/logo/symbol.svg" alt="Agent Plutus" width={18} height={18} />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-foreground">AI Assistant</p>
@@ -118,7 +119,7 @@ export function AiChatbot() {
             {messages.length === 0 && !loading && (
               <div className="text-center py-8">
                 <div className="h-10 w-10 rounded-xl bg-brand-subtle flex items-center justify-center mx-auto mb-3">
-                  <Bot className="h-5 w-5 text-brand" />
+                  <Image src="/logo/symbol.svg" alt="Agent Plutus" width={22} height={22} />
                 </div>
                 <p className="text-sm font-medium text-foreground mb-1">How can I help?</p>
                 <p className="text-xs text-muted-foreground mb-4">
@@ -159,7 +160,7 @@ export function AiChatbot() {
               >
                 {msg.role === "assistant" && (
                   <div className="h-6 w-6 rounded-md bg-brand-subtle flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="h-3 w-3 text-brand" />
+                    <Image src="/logo/symbol.svg" alt="" width={14} height={14} />
                   </div>
                 )}
                 <div
@@ -177,7 +178,7 @@ export function AiChatbot() {
             {loading && (
               <div className="flex gap-2.5">
                 <div className="h-6 w-6 rounded-md bg-brand-subtle flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="h-3 w-3 text-brand" />
+                  <Image src="/logo/symbol.svg" alt="" width={14} height={14} />
                 </div>
                 <div className="bg-muted rounded-xl px-3.5 py-2 flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
