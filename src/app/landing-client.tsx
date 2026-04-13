@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
-  Lock,
 } from "lucide-react";
 
 const providers = ["Anthropic", "OpenAI", "Cursor", "Gemini", "Vertex AI"];
@@ -35,23 +34,13 @@ export function LandingClient() {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors"
-          >
-            <Lock className="h-3.5 w-3.5" />
-            Log In
-          </Link>
-
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-[13px] font-semibold text-white transition-all hover:bg-brand-light active:scale-[0.97]"
-          >
-            Get Started
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-[13px] font-semibold text-white transition-all hover:bg-brand-light active:scale-[0.97]"
+        >
+          Log In
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </nav>
 
       {/* Main content area — mirrors dashboard shell layout */}
