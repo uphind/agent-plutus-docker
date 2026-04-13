@@ -9,10 +9,7 @@ services:
       - ./caddy-entrypoint.sh:/entrypoint.sh
       - caddy_data:/data
       - caddy_config:/config
-      # Mount custom TLS certificates (corporate CA):
-      # 1. Place cert.pem and key.pem in a ./certs/ directory
-      # 2. Uncomment the line below
-      # - ./certs:/certs:ro
+      - ./certs:/certs:ro
     environment:
       DOMAIN: "${DOMAIN:-localhost}"
     entrypoint: /entrypoint.sh
@@ -44,6 +41,9 @@ services:
       SSO_SAML_ENTRY_POINT: "${SSO_SAML_ENTRY_POINT:-}"
       SSO_SAML_ISSUER: "${SSO_SAML_ISSUER:-}"
       SSO_SAML_CERT: "${SSO_SAML_CERT:-}"
+
+      # SSO domain restriction (comma-separated, e.g. "payoneer.com,company.com")
+      SSO_ALLOWED_DOMAINS: "${SSO_ALLOWED_DOMAINS:-}"
 
       # Demo mode -- set to "true" to bypass SSO (for testing only)
       DEMO_MODE: "${DEMO_MODE:-}"

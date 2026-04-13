@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getSamlClient, encodeJwt } from "@/auth";
+import { encodeJwt } from "@/auth";
+import { getSamlClient } from "@/lib/saml";
 
 export async function POST(request: NextRequest) {
   const saml = getSamlClient();

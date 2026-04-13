@@ -1,7 +1,6 @@
 import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { SAML } from "@node-saml/node-saml";
 import { encode } from "next-auth/jwt";
 
 function getOIDCProvider() {
@@ -82,22 +81,5 @@ const config: NextAuthConfig = {
 };
 
 export const { handlers, auth, signIn, signOut } = NextAuth(config);
-
-export function getSamlClient(): SAML | null {
-  const entryPoint = process.env.SSO_SAML_ENTRY_POINT;
-  const issuer = process.env.SSO_SAML_ISSUER;
-  const cert = process.env.SSO_SAML_CERT;
-
-  if (!entryPoint || !issuer || !cert) return null;
-
-  return new SAML({
-    entryPoint,
-    issuer,
-    idpCert: cert,
-    callbackUrl: `${process.env.AUTH_URL ?? "https://localhost"}/api/auth/saml/acs`,
-    wantAssertionsSigned: false,
-    wantAuthnResponseSigned: false,
-  });
-}
 
 export { encode as encodeJwt };

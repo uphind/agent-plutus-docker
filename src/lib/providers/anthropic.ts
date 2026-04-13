@@ -1,7 +1,13 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, ProviderFetchResult } from "./types";
+import {
+  ProviderAdapter,
+  ProviderFetchResult,
+  NormalizedUsageRecord,
+} from "./types";
 
 const API_BASE = "https://api.anthropic.com/v1/organizations";
+
+// --- Messages Usage Report types ---
 
 interface AnthropicUsageBucket {
   starting_at: string;
@@ -39,6 +45,60 @@ interface AnthropicCostBucket {
   }>;
 }
 
+// --- Claude Code Analytics types ---
+
+interface ClaudeCodeActor {
+  type: "user_actor" | "api_actor";
+  email_address?: string;
+  api_key_name?: string;
+}
+
+interface ClaudeCodeToolAction {
+  accepted: number;
+  rejected: number;
+}
+
+interface ClaudeCodeRecord {
+  date: string;
+  actor: ClaudeCodeActor;
+  organization_id: string;
+  customer_type: string;
+  terminal_type: string;
+  core_metrics: {
+    num_sessions: number;
+    lines_of_code: { added: number; removed: number };
+    commits_by_claude_code: number;
+    pull_requests_by_claude_code: number;
+  };
+  tool_actions: {
+    edit_tool?: ClaudeCodeToolAction;
+    multi_edit_tool?: ClaudeCodeToolAction;
+    write_tool?: ClaudeCodeToolAction;
+    notebook_edit_tool?: ClaudeCodeToolAction;
+  };
+  model_breakdown: Array<{
+    model: string;
+    tokens: {
+      input: number;
+      output: number;
+      cache_read: number;
+      cache_creation: number;
+    };
+    estimated_cost: {
+      currency: string;
+      amount: number;
+    };
+  }>;
+}
+
+interface ClaudeCodeResponse {
+  data: ClaudeCodeRecord[];
+  has_more: boolean;
+  next_page: string | null;
+}
+
+// --- Shared fetch helper ---
+
 async function anthropicFetch(url: string, apiKey: string) {
   const res = await fetch(url, {
     headers: {
@@ -52,6 +112,113 @@ async function anthropicFetch(url: string, apiKey: string) {
   }
   return res.json();
 }
+
+function formatDateUTC(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+// --- Claude Code Analytics fetcher ---
+
+async function fetchClaudeCodeAnalytics(
+  apiKey: string,
+  startDate: Date,
+  endDate: Date
+): Promise<NormalizedUsageRecord[]> {
+  const records: NormalizedUsageRecord[] = [];
+
+  const current = new Date(startDate);
+  current.setUTCHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setUTCHours(0, 0, 0, 0);
+
+  while (current <= end) {
+    const dateStr = formatDateUTC(current);
+    let page: string | null = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      let url = `${API_BASE}/usage_report/claude_code?starting_at=${dateStr}&limit=1000`;
+      if (page) url += `&page=${page}`;
+
+      const data: ClaudeCodeResponse = await anthropicFetch(url, apiKey);
+
+      for (const rec of data.data) {
+        const userRef =
+          rec.actor.type === "user_actor"
+            ? rec.actor.email_address ?? null
+            : rec.actor.api_key_name ?? null;
+
+        const recordDate = new Date(rec.date);
+
+        const allTools = Object.values(rec.tool_actions).filter(
+          (t): t is ClaudeCodeToolAction => t != null
+        );
+        const totalAccepted = allTools.reduce((s, t) => s + t.accepted, 0);
+        const totalRejected = allTools.reduce((s, t) => s + t.rejected, 0);
+        const totalActions = totalAccepted + totalRejected;
+
+        const productivity = {
+          source: "claude_code" as const,
+          terminal_type: rec.terminal_type,
+          customer_type: rec.customer_type,
+          num_sessions: rec.core_metrics.num_sessions,
+          lines_added: rec.core_metrics.lines_of_code.added,
+          lines_removed: rec.core_metrics.lines_of_code.removed,
+          commits: rec.core_metrics.commits_by_claude_code,
+          pull_requests: rec.core_metrics.pull_requests_by_claude_code,
+          tool_actions: rec.tool_actions,
+        };
+
+        if (rec.model_breakdown.length > 0) {
+          for (const mb of rec.model_breakdown) {
+            records.push({
+              provider: Provider.anthropic,
+              userRef,
+              model: mb.model,
+              date: recordDate,
+              inputTokens: mb.tokens.input,
+              outputTokens: mb.tokens.output,
+              cachedTokens: mb.tokens.cache_read + mb.tokens.cache_creation,
+              requestsCount: rec.core_metrics.num_sessions,
+              costUsd: mb.estimated_cost.amount / 100,
+              linesAccepted: totalAccepted,
+              linesSuggested: totalAccepted + totalRejected,
+              acceptRate:
+                totalActions > 0 ? totalAccepted / totalActions : undefined,
+              metadata: productivity,
+            });
+          }
+        } else {
+          records.push({
+            provider: Provider.anthropic,
+            userRef,
+            model: "claude-code",
+            date: recordDate,
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedTokens: 0,
+            requestsCount: rec.core_metrics.num_sessions,
+            costUsd: 0,
+            linesAccepted: totalAccepted,
+            linesSuggested: totalAccepted + totalRejected,
+            acceptRate:
+              totalActions > 0 ? totalAccepted / totalActions : undefined,
+            metadata: productivity,
+          });
+        }
+      }
+
+      hasMore = data.has_more;
+      page = data.next_page;
+    }
+
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return records;
+}
+
+// --- Adapter ---
 
 export const anthropicAdapter: ProviderAdapter = {
   provider: Provider.anthropic,
@@ -75,7 +242,7 @@ export const anthropicAdapter: ProviderAdapter = {
   ): Promise<ProviderFetchResult> {
     const records: ProviderFetchResult["records"] = [];
 
-    // Fetch usage data
+    // 1. Messages Usage Report (general API usage, keyed by api_key_id)
     let usagePage: string | null = null;
     let hasMore = true;
 
@@ -106,6 +273,7 @@ export const anthropicAdapter: ProviderAdapter = {
             requestsCount: 0,
             costUsd: 0,
             metadata: {
+              source: "messages_api",
               workspace_id: result.workspace_id,
               api_key_id: result.api_key_id,
               service_tier: result.service_tier,
@@ -119,7 +287,7 @@ export const anthropicAdapter: ProviderAdapter = {
       usagePage = data.next_page ?? null;
     }
 
-    // Fetch cost data and merge
+    // 2. Cost Report — merge into Messages records
     try {
       let costPage: string | null = null;
       let costHasMore = true;
@@ -134,7 +302,6 @@ export const anthropicAdapter: ProviderAdapter = {
         for (const bucket of costBuckets) {
           const bucketDate = new Date(bucket.starting_at);
           for (const result of bucket.results ?? []) {
-            // amount is a string in cents (e.g. "123.45" = $1.2345)
             const amountCents = parseFloat(result.amount) || 0;
             const amountUsd = amountCents / 100;
 
@@ -155,7 +322,19 @@ export const anthropicAdapter: ProviderAdapter = {
         costPage = costData.next_page ?? null;
       }
     } catch {
-      // Cost data is supplementary -- don't fail if unavailable
+      // Cost data is supplementary
+    }
+
+    // 3. Claude Code Analytics (email-based user attribution + productivity)
+    try {
+      const claudeCodeRecords = await fetchClaudeCodeAnalytics(
+        apiKey,
+        startDate,
+        endDate
+      );
+      records.push(...claudeCodeRecords);
+    } catch {
+      // Claude Code analytics may not be available for all orgs
     }
 
     return { records };

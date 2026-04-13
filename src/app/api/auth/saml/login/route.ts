@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSamlClient } from "@/auth";
+import { getSamlClient } from "@/lib/saml";
 
 export async function GET() {
   const saml = getSamlClient();

@@ -5,11 +5,22 @@ import { Header } from "@/components/layout/header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { api } from "@/lib/dashboard-api";
 import {
   Users, Link2, ArrowRight, GripVertical, Check,
-  RefreshCw, Eye, EyeOff, AlertTriangle, Trash2,
+  RefreshCw, Eye, EyeOff, AlertTriangle, Trash2, Clock,
 } from "lucide-react";
+
+const INTERVAL_OPTIONS = [
+  { value: "1", label: "Every 1 hour" },
+  { value: "2", label: "Every 2 hours" },
+  { value: "4", label: "Every 4 hours" },
+  { value: "6", label: "Every 6 hours" },
+  { value: "12", label: "Every 12 hours" },
+  { value: "24", label: "Every 24 hours" },
+];
 
 interface Mapping {
   sourceField: string;
@@ -44,6 +55,34 @@ export default function GraphIntegrationPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; created: number; updated: number } | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
+
+  const [selectedInterval, setSelectedInterval] = useState("6");
+  const [intervalSaving, setIntervalSaving] = useState(false);
+  const [intervalSaved, setIntervalSaved] = useState(false);
+  const [currentInterval, setCurrentInterval] = useState("6");
+  const [intervalError, setIntervalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getSettings().then((data) => {
+      setSelectedInterval(String(data.syncIntervalHours));
+      setCurrentInterval(String(data.syncIntervalHours));
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveInterval = async () => {
+    setIntervalSaving(true);
+    setIntervalError(null);
+    try {
+      await api.updateSettings({ sync_interval_hours: parseInt(selectedInterval, 10) });
+      setCurrentInterval(selectedInterval);
+      setIntervalSaved(true);
+      setTimeout(() => setIntervalSaved(false), 3000);
+    } catch (err) {
+      setIntervalError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setIntervalSaving(false);
+    }
+  };
 
   const loadExistingConfig = useCallback(async () => {
     try {
@@ -447,29 +486,69 @@ export default function GraphIntegrationPage() {
 
       {/* Step 3: Sync */}
       {step === "done" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 text-muted-foreground" />
-              <CardTitle>Sync Directory</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Pull users from your Active Directory using the configured field mappings.
-            </p>
-            <Button onClick={handleSync} disabled={syncing}>
-              {syncing ? "Syncing..." : "Sync Now"}
-            </Button>
-            {syncResult && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
-                <p className="text-sm font-medium text-emerald-700">
-                  Sync complete: {syncResult.total} users processed ({syncResult.created} created, {syncResult.updated} updated)
-                </p>
+        <>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                <CardTitle>Sync Directory</CardTitle>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Pull users from your Active Directory using the configured field mappings.
+              </p>
+              <Button onClick={handleSync} disabled={syncing}>
+                {syncing ? "Syncing..." : "Sync Now"}
+              </Button>
+              {syncResult && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
+                  <p className="text-sm font-medium text-emerald-700">
+                    Sync complete: {syncResult.total} users processed ({syncResult.created} created, {syncResult.updated} updated)
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <CardTitle>Sync Schedule</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Directory and usage data are automatically synced on a recurring schedule.
+              </p>
+              <div className="flex items-end gap-3">
+                <div className="w-64">
+                  <Select
+                    label="Sync interval"
+                    options={INTERVAL_OPTIONS}
+                    value={selectedInterval}
+                    onChange={(e) => setSelectedInterval(e.target.value)}
+                  />
+                </div>
+                <Button
+                  onClick={handleSaveInterval}
+                  disabled={selectedInterval === currentInterval || intervalSaving}
+                >
+                  {intervalSaving ? "Saving..." : "Save"}
+                </Button>
+              </div>
+              {intervalSaved && (
+                <p className="text-sm text-emerald-600 font-medium">
+                  Sync schedule updated successfully
+                </p>
+              )}
+              {intervalError && (
+                <p className="text-sm text-red-600 font-medium">{intervalError}</p>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

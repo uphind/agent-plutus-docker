@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 
 const DEMO_MODE = process.env.DEMO_MODE === "true";
 
+const ALLOWED_DOMAINS = (process.env.SSO_ALLOWED_DOMAINS ?? "")
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
@@ -17,6 +22,10 @@ export default auth((req) => {
     pathname === "/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
+    pathname.startsWith("/logo") ||
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".png") ||
+    pathname.endsWith(".ico") ||
     PUBLIC_PATHS.some((p) => pathname.startsWith(p))
   ) {
     return NextResponse.next();
@@ -29,6 +38,22 @@ export default auth((req) => {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (ALLOWED_DOMAINS.length > 0) {
+    const email = req.auth.user?.email ?? "";
+    const domain = email.split("@")[1]?.toLowerCase();
+    if (!domain || !ALLOWED_DOMAINS.includes(domain)) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "Access denied: email domain not allowed" },
+          { status: 403 }
+        );
+      }
+      const loginUrl = new URL("/login", req.url);
+      loginUrl.searchParams.set("error", "DomainNotAllowed");
+      return NextResponse.redirect(loginUrl);
+    }
   }
 
   return NextResponse.next();

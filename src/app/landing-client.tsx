@@ -2,21 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
 import {
   ArrowRight,
   Lock,
-  Mail,
 } from "lucide-react";
 
 const providers = ["Anthropic", "OpenAI", "Cursor", "Gemini", "Vertex AI"];
 
 export function LandingClient() {
-  const [showComingSoon, setShowComingSoon] = useState(false);
-
   return (
     <div className="h-screen flex flex-col bg-sidebar text-white overflow-hidden">
-      {/* Sidebar-style radial gradients — same as dashboard */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(22,22,231,0.12),transparent_60%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(22,22,231,0.08),transparent_60%)]" />
@@ -41,36 +36,19 @@ export function LandingClient() {
         </div>
 
         <div className="flex items-center gap-2">
-          <a
-            href="mailto:contact@agentplutus.com"
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-gray-400 hover:text-gray-200 transition-colors"
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors"
           >
-            <Mail className="h-3.5 w-3.5" />
-            Contact Us
-          </a>
-
-          <div className="relative">
-            <button
-              onClick={() => setShowComingSoon((v) => !v)}
-              onBlur={() => setShowComingSoon(false)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors cursor-default"
-            >
-              <Lock className="h-3.5 w-3.5" />
-              Log In
-            </button>
-            {showComingSoon && (
-              <div className="absolute top-full mt-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-900 shadow-lg z-50">
-                Coming Soon
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-2 rotate-45 bg-white" />
-              </div>
-            )}
-          </div>
+            <Lock className="h-3.5 w-3.5" />
+            Log In
+          </Link>
 
           <Link
-            href="/dashboard"
+            href="/login"
             className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-[13px] font-semibold text-white transition-all hover:bg-brand-light active:scale-[0.97]"
           >
-            View Demo
+            Get Started
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -103,11 +81,6 @@ export function LandingClient() {
                     width={56}
                     height={56}
                   />
-                </div>
-
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3.5 py-1 text-[11px] font-medium text-muted-foreground mb-6">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live demo available
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1] text-foreground mb-4">
