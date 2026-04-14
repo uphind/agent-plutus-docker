@@ -1,8 +1,11 @@
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('budget_alert', 'anomaly', 'sync_failure', 'idle_seat', 'suggestion');
+DO $$ BEGIN
+  CREATE TYPE "NotificationType" AS ENUM ('budget_alert', 'anomaly', 'sync_failure', 'idle_seat', 'suggestion');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable: notifications
-CREATE TABLE "notifications" (
+CREATE TABLE IF NOT EXISTS "notifications" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "type" "NotificationType" NOT NULL,
@@ -18,7 +21,7 @@ CREATE TABLE "notifications" (
 );
 
 -- CreateTable: cursor_dau
-CREATE TABLE "cursor_dau" (
+CREATE TABLE IF NOT EXISTS "cursor_dau" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "date" DATE NOT NULL,
@@ -29,7 +32,7 @@ CREATE TABLE "cursor_dau" (
 );
 
 -- CreateTable: terminology_overrides
-CREATE TABLE "terminology_overrides" (
+CREATE TABLE IF NOT EXISTS "terminology_overrides" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "system_term" TEXT NOT NULL,
@@ -41,7 +44,7 @@ CREATE TABLE "terminology_overrides" (
 );
 
 -- CreateTable: graph_configs
-CREATE TABLE "graph_configs" (
+CREATE TABLE IF NOT EXISTS "graph_configs" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -57,7 +60,7 @@ CREATE TABLE "graph_configs" (
 );
 
 -- CreateTable: field_mappings
-CREATE TABLE "field_mappings" (
+CREATE TABLE IF NOT EXISTS "field_mappings" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "entity_type" TEXT NOT NULL,
@@ -70,7 +73,7 @@ CREATE TABLE "field_mappings" (
 );
 
 -- CreateTable: benchmark_snapshots
-CREATE TABLE "benchmark_snapshots" (
+CREATE TABLE IF NOT EXISTS "benchmark_snapshots" (
     "id" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "company_size" TEXT NOT NULL,
@@ -85,7 +88,7 @@ CREATE TABLE "benchmark_snapshots" (
 );
 
 -- CreateTable: chargeback_reports
-CREATE TABLE "chargeback_reports" (
+CREATE TABLE IF NOT EXISTS "chargeback_reports" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "month" TEXT NOT NULL,
@@ -97,57 +100,72 @@ CREATE TABLE "chargeback_reports" (
 );
 
 -- AlterTable: usage_records — add missing columns
-ALTER TABLE "usage_records" ADD COLUMN "api_key_id" TEXT;
-ALTER TABLE "usage_records" ADD COLUMN "input_audio_tokens" INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE "usage_records" ADD COLUMN "output_audio_tokens" INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE "usage_records" ADD COLUMN "is_batch" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "usage_records" ADD COLUMN IF NOT EXISTS "api_key_id" TEXT;
+ALTER TABLE "usage_records" ADD COLUMN IF NOT EXISTS "input_audio_tokens" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "usage_records" ADD COLUMN IF NOT EXISTS "output_audio_tokens" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "usage_records" ADD COLUMN IF NOT EXISTS "is_batch" BOOLEAN NOT NULL DEFAULT false;
 
 -- AlterTable: org_users — add missing columns
-ALTER TABLE "org_users" ADD COLUMN "monthly_budget" DECIMAL(12,2);
-ALTER TABLE "org_users" ADD COLUMN "alert_threshold" INTEGER NOT NULL DEFAULT 80;
+ALTER TABLE "org_users" ADD COLUMN IF NOT EXISTS "monthly_budget" DECIMAL(12,2);
+ALTER TABLE "org_users" ADD COLUMN IF NOT EXISTS "alert_threshold" INTEGER NOT NULL DEFAULT 80;
 
 -- AlterTable: departments — add missing columns
-ALTER TABLE "departments" ADD COLUMN "cost_center" TEXT;
-ALTER TABLE "departments" ADD COLUMN "gl_code" TEXT;
+ALTER TABLE "departments" ADD COLUMN IF NOT EXISTS "cost_center" TEXT;
+ALTER TABLE "departments" ADD COLUMN IF NOT EXISTS "gl_code" TEXT;
 
 -- CreateIndex: notifications
-CREATE INDEX "notifications_org_id_is_read_created_at_idx" ON "notifications"("org_id", "is_read", "created_at");
+CREATE INDEX IF NOT EXISTS "notifications_org_id_is_read_created_at_idx" ON "notifications"("org_id", "is_read", "created_at");
 
 -- CreateIndex: cursor_dau
-CREATE UNIQUE INDEX "cursor_dau_org_id_date_key" ON "cursor_dau"("org_id", "date");
-CREATE INDEX "cursor_dau_org_id_idx" ON "cursor_dau"("org_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "cursor_dau_org_id_date_key" ON "cursor_dau"("org_id", "date");
+CREATE INDEX IF NOT EXISTS "cursor_dau_org_id_idx" ON "cursor_dau"("org_id");
 
 -- CreateIndex: terminology_overrides
-CREATE UNIQUE INDEX "terminology_overrides_org_id_system_term_key" ON "terminology_overrides"("org_id", "system_term");
-CREATE INDEX "terminology_overrides_org_id_idx" ON "terminology_overrides"("org_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "terminology_overrides_org_id_system_term_key" ON "terminology_overrides"("org_id", "system_term");
+CREATE INDEX IF NOT EXISTS "terminology_overrides_org_id_idx" ON "terminology_overrides"("org_id");
 
 -- CreateIndex: graph_configs
-CREATE UNIQUE INDEX "graph_configs_org_id_key" ON "graph_configs"("org_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "graph_configs_org_id_key" ON "graph_configs"("org_id");
 
 -- CreateIndex: field_mappings
-CREATE UNIQUE INDEX "field_mappings_org_id_entity_type_target_field_key" ON "field_mappings"("org_id", "entity_type", "target_field");
-CREATE INDEX "field_mappings_org_id_idx" ON "field_mappings"("org_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "field_mappings_org_id_entity_type_target_field_key" ON "field_mappings"("org_id", "entity_type", "target_field");
+CREATE INDEX IF NOT EXISTS "field_mappings_org_id_idx" ON "field_mappings"("org_id");
 
 -- CreateIndex: benchmark_snapshots
-CREATE UNIQUE INDEX "benchmark_snapshots_date_company_size_key" ON "benchmark_snapshots"("date", "company_size");
+CREATE UNIQUE INDEX IF NOT EXISTS "benchmark_snapshots_date_company_size_key" ON "benchmark_snapshots"("date", "company_size");
 
 -- CreateIndex: chargeback_reports
-CREATE INDEX "chargeback_reports_org_id_month_idx" ON "chargeback_reports"("org_id", "month");
+CREATE INDEX IF NOT EXISTS "chargeback_reports_org_id_month_idx" ON "chargeback_reports"("org_id", "month");
 
 -- CreateIndex: usage_records dedup constraint
-CREATE UNIQUE INDEX "usage_dedup" ON "usage_records"("org_id", "user_id", "provider", "model", "date");
+CREATE UNIQUE INDEX IF NOT EXISTS "usage_dedup" ON "usage_records"("org_id", "user_id", "provider", "model", "date");
 
 -- AddForeignKey: notifications
-ALTER TABLE "notifications" ADD CONSTRAINT "notifications_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "notifications" ADD CONSTRAINT "notifications_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey: cursor_dau
-ALTER TABLE "cursor_dau" ADD CONSTRAINT "cursor_dau_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "cursor_dau" ADD CONSTRAINT "cursor_dau_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey: terminology_overrides
-ALTER TABLE "terminology_overrides" ADD CONSTRAINT "terminology_overrides_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "terminology_overrides" ADD CONSTRAINT "terminology_overrides_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey: graph_configs
-ALTER TABLE "graph_configs" ADD CONSTRAINT "graph_configs_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "graph_configs" ADD CONSTRAINT "graph_configs_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey: field_mappings
-ALTER TABLE "field_mappings" ADD CONSTRAINT "field_mappings_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "field_mappings" ADD CONSTRAINT "field_mappings_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
