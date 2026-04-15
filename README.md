@@ -75,8 +75,8 @@ curl ifconfig.me
 | Scenario | PROTOCOL | DOMAIN | Certs needed? | SSO needed? |
 |----------|----------|--------|---------------|-------------|
 | Testing with IP (simplest) | `"http"` | `"143.198.55.12"` | No | No |
-| Testing with domain | `"https"` | `"ai-analytics.company.com"` | Auto (Let's Encrypt) | Yes |
-| Internal / corporate | `"https"` | `"ai-analytics.company.com"` | Corporate CA (see below) | Yes |
+| Testing with domain | `"https"` | `"your-domain.com"` | Auto (Let's Encrypt) | Yes |
+| Internal / corporate | `"https"` | `"your-domain.com"` | Corporate CA (see below) | Yes |
 
 For testing, use HTTP mode — no certificates, no SSO, just works:
 
@@ -108,7 +108,7 @@ If you're on DigitalOcean, AWS, or another cloud provider, also check the firewa
 
 Skip this step if using HTTP mode.
 
-**If your domain is public** (e.g. `ai-analytics.company.com` with DNS pointing at your server), Caddy gets a Let's Encrypt certificate automatically. Nothing to do.
+**If your domain is public** (e.g. `your-domain.com` with DNS pointing at your server), Caddy gets a Let's Encrypt certificate automatically. Nothing to do.
 
 **If using an IP address or internal domain with HTTPS**, generate a self-signed cert:
 
@@ -215,7 +215,7 @@ Create a `.env` file in the **project root** (same directory as `docker-compose.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DOMAIN` | Public hostname. Caddy uses this for TLS — a real domain gets auto Let's Encrypt; `localhost` gets a self-signed cert. | `ai-analytics.company.com` |
+| `DOMAIN` | Public hostname. Caddy uses this for TLS — a real domain gets auto Let's Encrypt; `localhost` gets a self-signed cert. | `your-domain.com` |
 | `ENCRYPTION_KEY` | Secret for encrypting provider API keys at rest. Generate with `openssl rand -base64 32`. | `k8Jd9f...` (32+ chars) |
 | `AUTH_SECRET` | Secret for signing NextAuth session tokens. Generate with `openssl rand -base64 32`. | `Mx7Rp2...` (32+ chars) |
 
@@ -328,7 +328,7 @@ The Caddy reverse proxy handles TLS automatically:
 | Scenario | What happens |
 |----------|--------------|
 | `DOMAIN=localhost` | Self-signed certificate (browser will show a warning) |
-| `DOMAIN=ai-analytics.company.com` | Automatic Let's Encrypt certificate (server must be reachable on port 443) |
+| `DOMAIN=your-domain.com` | Automatic Let's Encrypt certificate (server must be reachable on port 443) |
 | Corporate CA / custom certs | Place `cert.pem` and `key.pem` in a `./certs/` directory, then uncomment the volume mount in `docker-compose.yml` |
 
 To use corporate certificates, uncomment this line in `docker-compose.yml` under the `caddy` service:

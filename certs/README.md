@@ -15,7 +15,7 @@ The system auto-detects these files on startup:
 ## How to get these files
 
 Ask your IT/security team for a TLS certificate for the domain you set in `DOMAIN`
-(e.g. `ai-analytics.payoneer.com`). They will provide a `.pem` or `.crt` + `.key` pair.
+(e.g. `your-domain.com`). They will provide a `.pem` or `.crt` + `.key` pair.
 
 If they give you `.crt` instead of `.pem`, just rename it — the format is the same.
 

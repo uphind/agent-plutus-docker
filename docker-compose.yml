@@ -47,7 +47,7 @@ services:
       SSO_SAML_ISSUER: "${SSO_SAML_ISSUER:-}"
       SSO_SAML_CERT: "${SSO_SAML_CERT:-}"
 
-      # SSO domain restriction (comma-separated, e.g. "payoneer.com,company.com")
+      # SSO domain restriction (comma-separated, e.g. "company.com,other.com")
       SSO_ALLOWED_DOMAINS: "${SSO_ALLOWED_DOMAINS:-}"
     depends_on:
       - db
