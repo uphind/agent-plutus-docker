@@ -26,8 +26,8 @@ systemctl enable docker
 systemctl start docker
 
 # 5. Clone the repo, configure, and launch
-# git clone <repo-url> /opt/tokenear
-# cd /opt/tokenear
+# git clone https://github.com/uphind/agent-plutus-docker /opt/agent-plutus-docker
+# cd /opt/agent-plutus-docker
 # cp .env.example .env
 # nano .env  (edit with real values)
 # docker compose up -d

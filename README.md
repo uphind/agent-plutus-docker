@@ -6,19 +6,107 @@ Enterprise AI usage analytics platform. Connects to your AI providers (Anthropic
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- An SSO identity provider (Okta, Microsoft Entra ID, Google Workspace, AD FS, etc.)
+- A Linux server (Ubuntu 22.04+ recommended) or macOS/Windows with Docker Desktop
+- An SSO identity provider (Okta, Microsoft Entra ID, Google Workspace, AD FS, etc.) — only needed for HTTPS mode
 
-### 1. Clone and configure
+### 1. Install Docker (Ubuntu/Debian)
+
+Skip this step if Docker is already installed (`docker --version` to check).
 
 ```bash
-git clone <repo-url> && cd agent-plutus
+# Update system packages
+sudo apt-get update && sudo apt-get upgrade -y
+
+# Install dependencies
+sudo apt-get install -y ca-certificates curl gnupg git
+
+# Add Docker's official GPG key
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Add Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine + Compose
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Enable and start Docker
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# (Optional) Run Docker without sudo
+sudo usermod -aG docker $USER
+# Log out and back in for this to take effect
+```
+
+Verify the installation:
+
+```bash
+docker --version
+docker compose version
+```
+
+### 2. Clone and configure
+
+```bash
+git clone https://github.com/uphind/agent-plutus-docker && cd agent-plutus-docker
 cp .env.example .env
 ```
 
-Edit `.env` with your values (see [Environment Variables](#environment-variables) below).
+Edit `.env` with your values. At minimum you need to set `DOMAIN` and `PROTOCOL`:
 
-### 2. Start
+**Find your server's public IP:**
+
+```bash
+curl ifconfig.me
+```
+
+**If you don't have a domain name** (typical for testing on a cloud droplet), use HTTP mode with your IP:
+
+```bash
+nano .env
+```
+
+Set these two values:
+
+```
+PROTOCOL="http"
+DOMAIN="<your-server-ip>"
+```
+
+For example, if `curl ifconfig.me` returned `143.198.55.12`:
+
+```
+PROTOCOL="http"
+DOMAIN="143.198.55.12"
+```
+
+This gives you a working dashboard without needing TLS certificates or SSO.
+
+**If you have a real domain** pointed at this server, use HTTPS mode instead:
+
+```
+PROTOCOL="https"
+DOMAIN="ai-analytics.company.com"
+```
+
+See [Environment Variables](#environment-variables) below for all options.
+
+### 3. Open firewall ports
+
+```bash
+sudo ufw allow 80
+sudo ufw allow 443
+```
+
+If you're on DigitalOcean, AWS, or another cloud provider, also check the firewall rules in their web console.
+
+### 4. Start
 
 ```bash
 docker compose up -d
@@ -28,19 +116,22 @@ This starts three containers:
 
 | Container | Role | Port |
 |-----------|------|------|
-| **caddy** | HTTPS reverse proxy (TLS termination) | **443** (exposed to host) |
+| **caddy** | Reverse proxy | **443** (HTTPS) or **80** (HTTP) |
 | **app** | Next.js application | 3000 (internal only) |
 | **db** | PostgreSQL 16 | 5432 (internal only) |
 
 The database schema is automatically applied on first boot (`prisma migrate deploy`).
 
-### 3. Access the dashboard
+### 5. Access the dashboard
 
-Open **https://your-domain.com** (or **https://localhost** with a self-signed cert warning for testing).
+Open your browser **on your local machine** and go to:
 
-Log in via your SSO provider.
+- **HTTP mode:** `http://<your-server-ip>` (e.g. `http://143.198.55.12`)
+- **HTTPS mode:** `https://your-domain.com` (you'll get a cert warning if using self-signed)
 
-### 4. Connect AI providers
+If using HTTPS with SSO, log in via your SSO provider.
+
+### 6. Connect AI providers
 
 Navigate to **Providers** in the sidebar. For each provider you use:
 
@@ -61,7 +152,7 @@ Supported providers:
 
 After the initial sync, data is refreshed automatically (default: every 6 hours, configurable in **Settings**).
 
-### 5. Push your employee directory
+### 7. Push your employee directory
 
 Your HR system, Active Directory, or a script should POST your user directory so usage can be mapped to people:
 
