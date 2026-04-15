@@ -221,20 +221,88 @@ Create a `.env` file in the **project root** (same directory as `docker-compose.
 
 ### SSO Authentication
 
-The dashboard authenticates users via your corporate identity provider. Set `SSO_PROVIDER` to either `oidc` or `saml`.
+SSO is only required when `PROTOCOL="https"`. The dashboard authenticates users via your corporate identity provider. Set `SSO_PROVIDER` to either `oidc` or `saml`.
 
-**OIDC** (Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, PingFederate):
+#### OIDC (Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, PingFederate)
 
 | Variable | Description |
 |----------|-------------|
 | `SSO_PROVIDER` | `"oidc"` |
-| `SSO_ISSUER` | Issuer URL (e.g. `https://login.microsoftonline.com/{tenant-id}/v2.0`) |
+| `SSO_ISSUER` | Issuer URL (see provider-specific examples below) |
 | `SSO_CLIENT_ID` | OAuth client ID from your IdP |
 | `SSO_CLIENT_SECRET` | OAuth client secret from your IdP |
+| `SSO_ALLOWED_DOMAINS` | (Optional) Comma-separated email domains to allow, e.g. `"company.com"`. Leave empty to allow all authenticated users. |
 
 Register this redirect URI in your IdP: `https://{DOMAIN}/api/auth/callback/oidc`
 
-**SAML 2.0** (AD FS, Shibboleth, any SAML 2.0 IdP):
+The app requests scopes `openid email profile`.
+
+#### Microsoft Entra ID Setup (step-by-step)
+
+1. Go to [Azure Portal](https://portal.azure.com) > **Microsoft Entra ID** > **App registrations** > **New registration**
+2. Configure the registration:
+   - **Name:** `Agent Plutus`
+   - **Supported account types:** "Accounts in this organizational directory only"
+   - **Redirect URI:** Select **Web** and enter `https://<your-domain>/api/auth/callback/oidc`
+3. Click **Register**
+4. On the app's **Overview** page, copy:
+   - **Application (client) ID** → use as `SSO_CLIENT_ID`
+   - **Directory (tenant) ID** → use in the issuer URL below
+5. Go to **Certificates & secrets** > **New client secret**
+   - Add a description, pick an expiry, click **Add**
+   - Copy the **Value** (not the Secret ID) → use as `SSO_CLIENT_SECRET`
+6. Go to **API permissions** > verify `openid`, `email`, and `profile` are listed under Microsoft Graph (they're added by default)
+
+Set these in your `.env`:
+
+```
+SSO_PROVIDER="oidc"
+SSO_ISSUER="https://login.microsoftonline.com/<your-tenant-id>/v2.0"
+SSO_CLIENT_ID="<application-client-id>"
+SSO_CLIENT_SECRET="<client-secret-value>"
+SSO_ALLOWED_DOMAINS="company.com"
+```
+
+#### Okta Setup (step-by-step)
+
+1. Go to **Okta Admin Console** > **Applications** > **Create App Integration**
+2. Select **OIDC - OpenID Connect** > **Web Application** > **Next**
+3. Configure:
+   - **App integration name:** `Agent Plutus`
+   - **Sign-in redirect URIs:** `https://<your-domain>/api/auth/callback/oidc`
+   - **Assignments:** Select who can access the app
+4. Click **Save**
+5. Copy the **Client ID** and **Client secret** from the app's settings
+
+Set these in your `.env`:
+
+```
+SSO_PROVIDER="oidc"
+SSO_ISSUER="https://<your-okta-domain>.okta.com"
+SSO_CLIENT_ID="<client-id>"
+SSO_CLIENT_SECRET="<client-secret>"
+```
+
+#### Google Workspace Setup (step-by-step)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) > **APIs & Services** > **Credentials**
+2. Click **Create Credentials** > **OAuth client ID**
+3. Select **Web application** and configure:
+   - **Name:** `Agent Plutus`
+   - **Authorized redirect URIs:** `https://<your-domain>/api/auth/callback/oidc`
+4. Click **Create** and copy the **Client ID** and **Client secret**
+
+Set these in your `.env`:
+
+```
+SSO_PROVIDER="oidc"
+SSO_ISSUER="https://accounts.google.com"
+SSO_CLIENT_ID="<client-id>.apps.googleusercontent.com"
+SSO_CLIENT_SECRET="<client-secret>"
+SSO_ALLOWED_DOMAINS="company.com"
+```
+
+#### SAML 2.0 (AD FS, Shibboleth, any SAML 2.0 IdP)
 
 | Variable | Description |
 |----------|-------------|
