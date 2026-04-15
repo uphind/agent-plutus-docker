@@ -7,15 +7,20 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ callbackUrl?: string; error?: string }>;
 }) {
-  const session = await auth();
   const params = await searchParams;
+  const callbackUrl = params.callbackUrl || "/dashboard";
+
+  if (process.env.PROTOCOL === "http") {
+    redirect(callbackUrl);
+  }
+
+  const session = await auth();
 
   if (session) {
-    redirect(params.callbackUrl || "/dashboard");
+    redirect(callbackUrl);
   }
 
   const ssoProvider = process.env.SSO_PROVIDER || "oidc";
-  const callbackUrl = params.callbackUrl || "/dashboard";
   const error = params.error || null;
 
   async function signInWithOIDC() {

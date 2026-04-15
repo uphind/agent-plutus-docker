@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 
+const AUTH_DISABLED = process.env.PROTOCOL === "http";
+
 const ALLOWED_DOMAINS = (process.env.SSO_ALLOWED_DOMAINS ?? "")
   .split(",")
   .map((d) => d.trim().toLowerCase())
@@ -16,6 +18,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (
+    AUTH_DISABLED ||
     pathname === "/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||

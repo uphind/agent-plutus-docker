@@ -3,6 +3,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
+      - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
@@ -12,6 +13,7 @@ services:
       - ./certs:/certs:ro
     environment:
       DOMAIN: "${DOMAIN:-localhost}"
+      PROTOCOL: "${PROTOCOL:-https}"
     entrypoint: /entrypoint.sh
     depends_on:
       - app
@@ -30,8 +32,11 @@ services:
       AUTH_SECRET: "${AUTH_SECRET:-change-me-auth-secret-32-chars!!}"
 
       # Public URL -- set DOMAIN in .env to your subdomain
-      AUTH_URL: "https://${DOMAIN:-localhost}"
+      AUTH_URL: "${PROTOCOL:-https}://${DOMAIN:-localhost}"
       AUTH_TRUST_HOST: "true"
+
+      # Protocol mode (http = open access, https = SSO required)
+      PROTOCOL: "${PROTOCOL:-https}"
 
       # SSO -- configure in .env (see README for setup instructions)
       SSO_PROVIDER: "${SSO_PROVIDER:-oidc}"
