@@ -58,7 +58,11 @@ git clone https://github.com/uphind/agent-plutus-docker && cd agent-plutus-docke
 cp .env.example .env
 ```
 
-Edit `.env` with your values. At minimum you need to set `DOMAIN` and `PROTOCOL`:
+Edit `.env` with your values:
+
+```bash
+nano .env
+```
 
 **Find your server's public IP:**
 
@@ -66,36 +70,30 @@ Edit `.env` with your values. At minimum you need to set `DOMAIN` and `PROTOCOL`
 curl ifconfig.me
 ```
 
-**If you don't have a domain name** (typical for testing on a cloud droplet), use HTTP mode with your IP:
+**Set your domain and protocol.** Choose one:
+
+| Scenario | PROTOCOL | DOMAIN | Certs needed? | SSO needed? |
+|----------|----------|--------|---------------|-------------|
+| Testing with IP (simplest) | `"http"` | `"143.198.55.12"` | No | No |
+| Testing with domain | `"https"` | `"ai-analytics.company.com"` | Auto (Let's Encrypt) | Yes |
+| Internal / corporate | `"https"` | `"ai-analytics.company.com"` | Corporate CA (see below) | Yes |
+
+For testing, use HTTP mode — no certificates, no SSO, just works:
 
 ```bash
-nano .env
+sed -i 's/^PROTOCOL=.*/PROTOCOL="http"/' .env
+sed -i 's/^DOMAIN=.*/DOMAIN="<your-server-ip>"/' .env
 ```
 
-Set these two values:
+**Generate secrets** (required for both HTTP and HTTPS):
 
-```
-PROTOCOL="http"
-DOMAIN="<your-server-ip>"
-```
-
-For example, if `curl ifconfig.me` returned `143.198.55.12`:
-
-```
-PROTOCOL="http"
-DOMAIN="143.198.55.12"
+```bash
+sed -i "s/^ENCRYPTION_KEY=.*/ENCRYPTION_KEY=\"$(openssl rand -base64 32)\"/" .env
+sed -i "s/^AUTH_SECRET=.*/AUTH_SECRET=\"$(openssl rand -base64 32)\"/" .env
+sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=\"$(openssl rand -hex 24)\"/" .env
 ```
 
-This gives you a working dashboard without needing TLS certificates or SSO.
-
-**If you have a real domain** pointed at this server, use HTTPS mode instead:
-
-```
-PROTOCOL="https"
-DOMAIN="ai-analytics.company.com"
-```
-
-See [Environment Variables](#environment-variables) below for all options.
+See [Environment Variables](#environment-variables) below for SSO and other options.
 
 ### 3. Open firewall ports
 
@@ -106,10 +104,32 @@ sudo ufw allow 443
 
 If you're on DigitalOcean, AWS, or another cloud provider, also check the firewall rules in their web console.
 
-### 4. Start
+### 4. Generate TLS certificates (HTTPS mode only)
+
+Skip this step if using HTTP mode.
+
+**If your domain is public** (e.g. `ai-analytics.company.com` with DNS pointing at your server), Caddy gets a Let's Encrypt certificate automatically. Nothing to do.
+
+**If using an IP address or internal domain with HTTPS**, generate a self-signed cert:
 
 ```bash
-docker compose up -d
+chmod +x generate-certs.sh
+./generate-certs.sh
+```
+
+This reads `DOMAIN` from your `.env` and creates `certs/cert.pem` + `certs/key.pem`. Your browser will show a certificate warning — click through it.
+
+**If using corporate CA certificates**, place them in the `certs/` directory:
+
+```bash
+cp /path/to/your/cert.pem certs/cert.pem
+cp /path/to/your/key.pem certs/key.pem
+```
+
+### 5. Start
+
+```bash
+sudo docker compose up -d
 ```
 
 This starts three containers:
@@ -122,7 +142,15 @@ This starts three containers:
 
 The database schema is automatically applied on first boot (`prisma migrate deploy`).
 
-### 5. Access the dashboard
+To check that all containers are running:
+
+```bash
+sudo docker compose ps
+```
+
+All three should show `Up`. If the app shows `Restarting`, check logs with `sudo docker compose logs app --tail 20`.
+
+### 6. Access the dashboard
 
 Open your browser **on your local machine** and go to:
 
@@ -131,7 +159,7 @@ Open your browser **on your local machine** and go to:
 
 If using HTTPS with SSO, log in via your SSO provider.
 
-### 6. Connect AI providers
+### 7. Connect AI providers
 
 Navigate to **Providers** in the sidebar. For each provider you use:
 
@@ -152,7 +180,7 @@ Supported providers:
 
 After the initial sync, data is refreshed automatically (default: every 6 hours, configurable in **Settings**).
 
-### 7. Push your employee directory
+### 8. Push your employee directory
 
 Your HR system, Active Directory, or a script should POST your user directory so usage can be mapped to people:
 
