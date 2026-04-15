@@ -1,14 +1,27 @@
 #!/bin/sh
 set -e
 
-# If custom TLS certs are mounted, configure Caddy to use them
+DOMAIN="${DOMAIN:-localhost}"
+CADDYFILE="/etc/caddy/Caddyfile"
+
+# Determine TLS mode
 if [ -f /certs/cert.pem ] && [ -f /certs/key.pem ]; then
-  export TLS_CONFIG="tls /certs/cert.pem /certs/key.pem"
-elif [ "$DOMAIN" = "localhost" ] || [ -z "$DOMAIN" ]; then
-  export TLS_CONFIG="tls internal"
+  TLS_LINE="tls /certs/cert.pem /certs/key.pem"
+elif [ "$DOMAIN" = "localhost" ]; then
+  TLS_LINE="tls internal"
 elif echo "$DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-  # IP address — use Caddy's internal self-signed certificate
-  export TLS_CONFIG="tls internal"
+  TLS_LINE="tls internal"
+else
+  TLS_LINE=""
 fi
 
-exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+# Write Caddyfile dynamically
+cat > "$CADDYFILE" <<EOF
+${DOMAIN} {
+  reverse_proxy app:3000
+  ${TLS_LINE}
+}
+EOF
+
+echo "Caddy config: domain=${DOMAIN} tls=${TLS_LINE:-auto}"
+exec caddy run --config "$CADDYFILE" --adapter caddyfile
